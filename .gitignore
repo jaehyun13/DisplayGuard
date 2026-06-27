@@ -22,3 +22,9 @@ __pycache__/
 
 # Internal business/marketing drafts (not for public repo)
 _business/
+
+# License signing secrets — NEVER commit private keys
+secrets/
+*.pem
+license_private*
+*_private_*.key

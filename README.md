@@ -115,6 +115,22 @@ icon.ico             # application icon (auto-generated if missing)
 requirements.txt     # Python dependencies
 ```
 
+## Feedback wanted
+
+DisplayGuard is early and I'd genuinely like to know whether it fixes the problem
+on **your** setup — especially edge cases I can't test alone: mixed refresh rates,
+portrait monitors, HDR, and fractional display scaling (DPI).
+
+- 🐞 Something broken or the layout not restored right? → [open a bug report](../../issues/new?template=bug_report.yml)
+- 💡 Idea or feature request? → [tell me here](../../issues/new?template=feature_request.yml)
+
+## Known limitations
+
+- Windows only (uses the Windows display API directly).
+- The first build is **unsigned**, so SmartScreen warns on first run (see above).
+- Restores monitor **position, resolution, refresh rate, and orientation**; it does
+  not currently manage HDR state or per-game profiles (planned — see roadmap).
+
 ## Roadmap
 
 DisplayGuard is free and solves the core problem completely. A **Pro** version

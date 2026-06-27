@@ -1,0 +1,76 @@
+name: Bug report
+description: Something doesn't work, or the layout isn't restored correctly
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping improve DisplayGuard! The details below (especially your
+        monitor setup) make bugs much faster to reproduce and fix.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did you expect, and what actually happened instead?
+      placeholder: |
+        After closing a fullscreen game, my monitors were not restored to their saved positions...
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Save current layout
+        2. Launch <game> in fullscreen
+        3. Quit the game
+        4. Layout is now wrong
+    validations:
+      required: false
+
+  - type: textarea
+    id: monitors
+    attributes:
+      label: Monitor setup
+      description: Number of monitors, resolutions, refresh rates, orientation, and which is primary. Mixed refresh rates / HDR / scaling (DPI) are especially useful to know.
+      placeholder: |
+        - Monitor 1: 1920x1080 @ 240Hz, primary, 100% scaling
+        - Monitor 2: 3840x2160 @ 60Hz, HDR on, 150% scaling
+        - Monitor 3: 1920x1080 @ 144Hz, portrait
+    validations:
+      required: true
+
+  - type: input
+    id: game
+    attributes:
+      label: Game / app that triggered it (if any)
+      placeholder: e.g. Valorant, Overwatch 2, a specific emulator
+    validations:
+      required: false
+
+  - type: input
+    id: gpu
+    attributes:
+      label: GPU + driver version
+      placeholder: e.g. NVIDIA RTX 4070, driver 555.99
+    validations:
+      required: false
+
+  - type: input
+    id: windows
+    attributes:
+      label: Windows version
+      placeholder: e.g. Windows 11 23H2
+    validations:
+      required: false
+
+  - type: textarea
+    id: log
+    attributes:
+      label: Log file (optional)
+      description: Paste the contents of `display_guard.log` (located next to the DisplayGuard.exe). It contains no personal data beyond monitor geometry.
+      render: text
+    validations:
+      required: false

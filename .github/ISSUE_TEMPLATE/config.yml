@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Question / discussion
+    url: https://github.com/jaehyun13/DisplayGuard/discussions
+    about: For general questions or to share your setup, start a discussion.

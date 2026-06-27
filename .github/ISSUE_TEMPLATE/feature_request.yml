@@ -1,0 +1,40 @@
+name: Feature request / feedback
+description: Suggest an improvement or tell us how you use DisplayGuard
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        We're validating what matters most to multi-monitor gamers. Your input
+        directly shapes the roadmap — thank you!
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem would this solve?
+      description: What are you trying to do that DisplayGuard doesn't help with yet?
+    validations:
+      required: true
+
+  - type: textarea
+    id: idea
+    attributes:
+      label: Proposed solution / idea
+    validations:
+      required: false
+
+  - type: dropdown
+    id: interest
+    attributes:
+      label: Which of these would you find most useful?
+      description: (Some of these are planned for a future Pro version.)
+      multiple: true
+      options:
+        - Multiple saved layout profiles
+        - Automatic profile switching per game
+        - Capture resolution / refresh rate / HDR / primary display in a profile
+        - Cloud backup & sync of profiles across PCs
+        - A global hotkey to restore manually
+        - Other (describe above)
+    validations:
+      required: false
