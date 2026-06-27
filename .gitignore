@@ -1,0 +1,21 @@
+# Build artifacts
+build/
+dist/
+Output/
+
+# PyInstaller work files (but keep DisplayGuard.spec — it's part of the build pipeline)
+*.spec
+!DisplayGuard.spec
+
+# Built executables (release binaries are attached to GitHub Releases, not committed)
+*.exe
+
+# User-generated runtime files
+*.lnk
+display_guard_config.json
+display_guard.log
+
+# Python cache
+__pycache__/
+*.py[cod]
+*.pyo
