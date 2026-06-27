@@ -1,5 +1,5 @@
 #define MyAppName      "DisplayGuard"
-#define MyAppVersion   "1.0.0"
+#define MyAppVersion   "1.1.0"
 #define MyAppPublisher "DisplayGuard"
 #define MyAppExeName   "DisplayGuard.exe"
 #define MyAppId        "{{A7F3C2D1-8B4E-4F6A-9C2D-3E5F7A1B8D4C}"

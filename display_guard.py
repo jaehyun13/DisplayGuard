@@ -230,7 +230,8 @@ class DisplayGuard:
         if not os.path.exists(CONFIG_FILE):
             return
         try:
-            with open(CONFIG_FILE, encoding="utf-8") as f:
+            # utf-8-sig tolerates a BOM (e.g. if the user edits the config in Notepad).
+            with open(CONFIG_FILE, encoding="utf-8-sig") as f:
                 data = json.load(f)
             self.saved = data.get("configs")
             self.restore_delay = data.get("delay", 2.0)
@@ -827,7 +828,7 @@ def _init_language():
     lang = None
     try:
         if os.path.exists(CONFIG_FILE):
-            with open(CONFIG_FILE, encoding="utf-8") as f:
+            with open(CONFIG_FILE, encoding="utf-8-sig") as f:
                 lang = json.load(f).get("language")
     except Exception:
         lang = None
