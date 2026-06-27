@@ -37,6 +37,7 @@ anti-cheat could flag. Your account stays safe.
 - 🔔 **System tray** — keeps running when you close the window; click the tray icon to reopen
 - 💾 **Persistent profile** — your reference layout is saved to JSON and survives restarts
 - 🔒 **Single instance** — won't launch twice by accident
+- 🌐 **9 languages** — English, 한국어, 日本語, 简体中文, Deutsch, Español, Français, Русский, Português (BR); auto-detected from Windows, switchable from the tray
 - 🪶 **Lightweight** — pure `ctypes` Windows API calls, no heavyweight dependencies
 
 ## Download

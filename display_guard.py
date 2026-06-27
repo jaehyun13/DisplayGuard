@@ -25,6 +25,9 @@ from typing import List, Dict, Optional, Callable
 import tkinter as tk
 from tkinter import ttk
 
+import i18n
+from i18n import t
+
 # ─────────────────────────────────────────────────
 # 경로 (PyInstaller frozen 환경 대응)
 # ─────────────────────────────────────────────────
@@ -197,8 +200,8 @@ def ensure_single_instance() -> bool:
         kernel32.CloseHandle(handle)
         user32.MessageBoxW(
             None,
-            "DisplayGuard가 이미 실행 중입니다.\n\n시스템 트레이(우측 하단)에서 아이콘을 클릭하거나\n작업 표시줄을 확인하세요.",
-            "DisplayGuard - 이미 실행 중",
+            t("already_running_body"),
+            t("already_running_title"),
             MB_ICONWARNING,
         )
         return False
@@ -214,6 +217,7 @@ class DisplayGuard:
         self.saved: Optional[List[Dict]] = None
         self.enabled  = True
         self.restore_delay = 2.0
+        self.language: Optional[str] = None   # user override; None = auto-detect
         self._timer: Optional[threading.Timer] = None
         self._lock  = threading.Lock()
         self.on_log: Optional[Callable[[str], None]] = None   # UI 콜백
@@ -230,16 +234,28 @@ class DisplayGuard:
                 data = json.load(f)
             self.saved = data.get("configs")
             self.restore_delay = data.get("delay", 2.0)
+            self.language = data.get("language")
         except Exception as e:
-            self._log(f"설정 로드 실패: {e}")
+            self._log(t("log_config_load_failed", error=e))
 
     def _persist(self):
         try:
             with open(CONFIG_FILE, "w", encoding="utf-8") as f:
-                json.dump({"configs": self.saved, "delay": self.restore_delay},
+                json.dump({"configs": self.saved, "delay": self.restore_delay,
+                           "language": self.language},
                           f, indent=2, ensure_ascii=False)
         except Exception as e:
-            self._log(f"설정 저장 실패: {e}")
+            self._log(t("log_config_save_failed", error=e))
+
+    # ── 언어 변경 ─────────────────────────────────
+
+    def set_language(self, code: str):
+        self.language = code
+        i18n.set_language(code)
+        self._persist()
+        self._log(t("lang_changed", lang=i18n.language_name(code)))
+        if self.on_refresh:
+            self.on_refresh()
 
     # ── 내부 로그 ─────────────────────────────────
 
@@ -257,7 +273,7 @@ class DisplayGuard:
         with self._lock:
             self.saved = configs
         self._persist()
-        self._log(f"현재 설정 저장 완료 ({len(configs)}개 모니터)")
+        self._log(t("log_saved", count=len(configs)))
         if self.on_refresh:
             self.on_refresh()
 
@@ -265,15 +281,15 @@ class DisplayGuard:
         with self._lock:
             saved = self.saved
         if not saved:
-            self._log("저장된 설정 없음")
+            self._log(t("log_no_saved"))
             return
-        self._log("수동 복원 실행 중...")
+        self._log(t("log_restore_manual"))
         ok = restore_display_configs(saved)
-        self._log("복원 완료" if ok else "복원 중 오류 발생")
+        self._log(t("log_restore_done") if ok else t("log_restore_error"))
 
     def toggle(self) -> bool:
         self.enabled = not self.enabled
-        self._log(f"보호 {'활성화' if self.enabled else '비활성화'}")
+        self._log(t("log_protection_on") if self.enabled else t("log_protection_off"))
         if self.on_refresh:
             self.on_refresh()
         return self.enabled
@@ -284,11 +300,11 @@ class DisplayGuard:
         with self._lock:
             if self._timer:
                 self._timer.cancel()
-            t = threading.Timer(self.restore_delay, self._do_restore)
-            t.daemon = True
-            self._timer = t
-        t.start()
-        self._log(f"디스플레이 변경 감지 → {self.restore_delay:.0f}초 후 자동 복원")
+            timer = threading.Timer(self.restore_delay, self._do_restore)
+            timer.daemon = True
+            self._timer = timer
+        timer.start()
+        self._log(t("log_change_detected", delay=self.restore_delay))
 
     def _do_restore(self):
         with self._lock:
@@ -297,10 +313,10 @@ class DisplayGuard:
             return
         current = get_display_configs()
         if configs_equal(saved, current):
-            self._log("설정 동일, 복원 불필요")
+            self._log(t("log_config_equal"))
             return
         ok = restore_display_configs(saved)
-        self._log("자동 복원 완료" if ok else "자동 복원 중 오류")
+        self._log(t("log_auto_restore_done") if ok else t("log_auto_restore_error"))
 
 # ─────────────────────────────────────────────────
 # WM_DISPLAYCHANGE 수신 창
@@ -432,7 +448,7 @@ class App(tk.Tk):
                                   bg=CLR_BG, fg=CLR_GREEN)
         self._dot_lbl.pack(side="left")
         self._status_lbl = tk.Label(self._status_frame,
-                                     text="보호 활성 중",
+                                     text=t("status_active"),
                                      font=("Segoe UI", 12, "bold"),
                                      bg=CLR_BG, fg=CLR_GREEN)
         self._status_lbl.pack(side="left", padx=6)
@@ -441,31 +457,36 @@ class App(tk.Tk):
         btn_frame = tk.Frame(self, bg=CLR_BG)
         btn_frame.pack(fill="x", padx=16, pady=4)
 
-        self._toggle_btn = self._btn(btn_frame, "보호 비활성화",
+        self._toggle_btn = self._btn(btn_frame, t("btn_disable"),
                                       self._on_toggle, CLR_RED)
         self._toggle_btn.pack(side="left", padx=(0, 8))
 
-        self._btn(btn_frame, "현재 설정 저장",
-                  self._on_snapshot, CLR_YELLOW).pack(side="left", padx=(0, 8))
+        self._save_btn = self._btn(btn_frame, t("btn_save"),
+                                   self._on_snapshot, CLR_YELLOW)
+        self._save_btn.pack(side="left", padx=(0, 8))
 
-        self._btn(btn_frame, "지금 복원",
-                  self._on_restore_now, CLR_BTN).pack(side="left")
+        self._restore_btn = self._btn(btn_frame, t("btn_restore_now"),
+                                      self._on_restore_now, CLR_BTN)
+        self._restore_btn.pack(side="left")
 
         # ── 모니터 목록
-        tk.Label(self, text="저장된 모니터 기준 위치",
-                 font=("Segoe UI", 10, "bold"),
-                 bg=CLR_BG, fg=CLR_MUTED).pack(anchor="w", padx=16, pady=(12, 4))
+        self._monitors_lbl = tk.Label(self, text=t("section_monitors"),
+                                       font=("Segoe UI", 10, "bold"),
+                                       bg=CLR_BG, fg=CLR_MUTED)
+        self._monitors_lbl.pack(anchor="w", padx=16, pady=(12, 4))
 
         mon_frame = tk.Frame(self, bg=CLR_PANEL, bd=0, highlightbackground=CLR_BORDER,
                               highlightthickness=1)
         mon_frame.pack(fill="x", padx=16)
 
-        cols = ("모니터", "위치", "해상도", "주사율")
-        self._tree = ttk.Treeview(mon_frame, columns=cols, show="headings",
+        # Stable column ids (don't change with language); headings are translated.
+        self._col_ids = ("monitor", "position", "resolution", "refresh")
+        self._col_keys = ("col_monitor", "col_position", "col_resolution", "col_refresh")
+        self._tree = ttk.Treeview(mon_frame, columns=self._col_ids, show="headings",
                                    height=5, style="DG.Treeview")
-        for col, w in zip(cols, (140, 110, 120, 80)):
-            self._tree.heading(col, text=col)
-            self._tree.column(col, width=w, anchor="center")
+        for cid, key, w in zip(self._col_ids, self._col_keys, (140, 110, 120, 80)):
+            self._tree.heading(cid, text=t(key))
+            self._tree.column(cid, width=w, anchor="center")
         self._tree.pack(fill="x")
 
         style = ttk.Style()
@@ -480,9 +501,10 @@ class App(tk.Tk):
         style.map("DG.Treeview", background=[("selected", CLR_BTN_H)])
 
         # ── 로그
-        tk.Label(self, text="활동 로그",
-                 font=("Segoe UI", 10, "bold"),
-                 bg=CLR_BG, fg=CLR_MUTED).pack(anchor="w", padx=16, pady=(12, 4))
+        self._log_lbl = tk.Label(self, text=t("section_log"),
+                                 font=("Segoe UI", 10, "bold"),
+                                 bg=CLR_BG, fg=CLR_MUTED)
+        self._log_lbl.pack(anchor="w", padx=16, pady=(12, 4))
 
         log_frame = tk.Frame(self, bg=CLR_PANEL, highlightbackground=CLR_BORDER,
                               highlightthickness=1)
@@ -500,10 +522,10 @@ class App(tk.Tk):
         self._log_text.pack(fill="both", expand=True, padx=4, pady=4)
 
         # ── 하단 힌트
-        tk.Label(self,
-                 text="창을 닫아도 트레이에서 계속 실행됩니다  |  트레이 아이콘을 클릭하면 창이 다시 열립니다",
-                 font=("Segoe UI", 8), bg=CLR_BG, fg=CLR_MUTED
-                 ).pack(pady=(0, 10))
+        self._footer_lbl = tk.Label(self,
+                 text=t("footer_hint"),
+                 font=("Segoe UI", 8), bg=CLR_BG, fg=CLR_MUTED)
+        self._footer_lbl.pack(pady=(0, 10))
 
     def _btn(self, parent, text, cmd, fg=CLR_FG):
         b = tk.Button(parent, text=text, command=cmd,
@@ -558,21 +580,43 @@ class App(tk.Tk):
         color  = CLR_GREEN if active else CLR_RED
         self._dot_lbl.configure(fg=color)
         self._status_lbl.configure(
-            text="보호 활성 중" if active else "보호 비활성화됨",
+            text=t("status_active") if active else t("status_inactive"),
             fg=color,
         )
         self._toggle_btn.configure(
-            text="보호 비활성화" if active else "보호 활성화",
+            text=t("btn_disable") if active else t("btn_enable"),
             fg=CLR_RED if active else CLR_GREEN,
         )
         self._refresh_monitor_list()
         # 트레이 툴팁 갱신
         if self._tray_icon:
             try:
-                status = "활성" if active else "비활성"
+                status = t("status_short_active") if active else t("status_short_inactive")
                 self._tray_icon.title = f"DisplayGuard [{status}]"
             except Exception:
                 pass
+
+    def set_language(self, code: str):
+        """Switch UI language live (called from the tray language menu)."""
+        self.guard.set_language(code)
+        self._retranslate()
+        self._refresh_status()
+        if self._tray_icon:
+            try:
+                self._tray_icon.update_menu()
+            except Exception:
+                pass
+
+    def _retranslate(self):
+        """Re-apply all static UI text in the current language."""
+        self._save_btn.configure(text=t("btn_save"))
+        self._restore_btn.configure(text=t("btn_restore_now"))
+        self._monitors_lbl.configure(text=t("section_monitors"))
+        self._log_lbl.configure(text=t("section_log"))
+        self._footer_lbl.configure(text=t("footer_hint"))
+        for cid, key in zip(self._col_ids, self._col_keys):
+            self._tree.heading(cid, text=t(key))
+        # status banner + toggle button are handled by _refresh_status()
 
     def _refresh_monitor_list(self):
         for row in self._tree.get_children():
@@ -701,7 +745,7 @@ def setup_tray(app: App, guard: DisplayGuard):
         import pystray
         from PIL import Image
     except ImportError:
-        app._enqueue_log("[경고] pystray/Pillow 미설치 → 트레이 없이 실행")
+        app._enqueue_log(t("tray_missing_deps"))
         return
 
     def on_show(icon, item):
@@ -717,28 +761,47 @@ def setup_tray(app: App, guard: DisplayGuard):
         icon.stop()
         app.after(0, app._quit)
 
-    menu = pystray.Menu(
-        pystray.MenuItem("창 열기", on_show, default=True),
-        pystray.Menu.SEPARATOR,
-        pystray.MenuItem("현재 설정 저장", on_snapshot),
+    def make_lang_setter(code):
+        def _set(icon, item):
+            app.after(0, lambda: app.set_language(code))
+        return _set
+
+    # Language submenu: one radio item per available language.
+    lang_items = [
         pystray.MenuItem(
-            lambda item: "보호 비활성화" if guard.enabled else "보호 활성화",
+            name,
+            make_lang_setter(code),
+            checked=(lambda item, c=code: i18n.get_language() == c),
+            radio=True,
+        )
+        for code, name in i18n.LANGUAGES.items()
+    ]
+    language_menu = pystray.MenuItem(lambda item: t("tray_language"),
+                                     pystray.Menu(*lang_items))
+
+    menu = pystray.Menu(
+        pystray.MenuItem(lambda item: t("tray_open"), on_show, default=True),
+        pystray.Menu.SEPARATOR,
+        pystray.MenuItem(lambda item: t("tray_save"), on_snapshot),
+        pystray.MenuItem(
+            lambda item: t("btn_disable") if guard.enabled else t("btn_enable"),
             on_toggle,
         ),
+        language_menu,
         pystray.Menu.SEPARATOR,
-        pystray.MenuItem("종료", on_exit),
+        pystray.MenuItem(lambda item: t("tray_exit"), on_exit),
     )
 
     icon = pystray.Icon(
         "DisplayGuard",
         _make_icon(guard.enabled),
-        "DisplayGuard [활성]",
+        f"DisplayGuard [{t('status_short_active')}]",
         menu,
     )
     icon.run_detached()
     app._tray_icon = icon
     app._has_tray  = True
-    app._enqueue_log("[트레이] 시스템 트레이 아이콘 시작")
+    app._enqueue_log(t("tray_started"))
 
 # ─────────────────────────────────────────────────
 # 파일 로깅
@@ -755,13 +818,31 @@ logging.basicConfig(
 # 메인
 # ─────────────────────────────────────────────────
 
+def _init_language():
+    """Set the active UI language from the saved override, or auto-detect.
+
+    Done before anything is shown (including the 'already running' dialog) so the
+    very first UI a user sees is already localized.
+    """
+    lang = None
+    try:
+        if os.path.exists(CONFIG_FILE):
+            with open(CONFIG_FILE, encoding="utf-8") as f:
+                lang = json.load(f).get("language")
+    except Exception:
+        lang = None
+    i18n.set_language(lang or i18n.detect_system_language())
+
+
 def main():
+    _init_language()
+
     if not ensure_single_instance():
         return
 
     guard = DisplayGuard()
     if not guard.saved:
-        guard._log("저장된 설정 없음 → 현재 설정 자동 저장")
+        guard._log(t("log_no_saved_autosave"))
         configs = get_display_configs()
         guard.saved = configs
         guard._persist()
@@ -776,7 +857,7 @@ def main():
     # 트레이 (별도 스레드로 실행)
     setup_tray(app, guard)
 
-    app._enqueue_log(f"DisplayGuard v2.0 시작 — {len(guard.saved)}개 모니터 감지")
+    app._enqueue_log(t("app_started", count=len(guard.saved)))
     for c in guard.saved:
         tag = " ★" if c["primary"] else ""
         app._enqueue_log(f"  {c['name'].replace(chr(92)+chr(92)+'.'+chr(92), '')}{tag}: "
