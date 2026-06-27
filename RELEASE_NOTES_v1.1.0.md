@@ -30,3 +30,10 @@ instance, lightweight Windows-API core) is unchanged.
 ## Upgrading from 1.0.0
 
 Just run the new installer — it upgrades in place and keeps your saved layout.
+
+---
+
+**SHA-256** (`DisplayGuard-Setup-1.1.0.exe`):
+`0D51A368B1A9268DF4F936A2685CB74B409D3B885F197A0961BBDC19E57A47F5`
+
+> Note: this build is currently **unsigned** (free code signing in progress).

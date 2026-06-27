@@ -37,7 +37,7 @@ setup (mixed 60/144/165/240 Hz, including a 4K display).
 ---
 
 **SHA-256** (`DisplayGuard-Setup-1.0.0.exe`):
-`1D34526BA971BC112C895E868FCED38D0B7A3C3227F037CBEE76ED6EB0185AEB`
+`D7ACE5B2D98DD01152AE79336C59F52B413D99287AD95449A3E524CE31B97EC8`
 
 > Note: this build is currently **unsigned**. Code signing (SignPath Foundation
 > for OSS, or a Sectigo OV cert) is planned for a future release.
