@@ -19,3 +19,6 @@ display_guard.log
 __pycache__/
 *.py[cod]
 *.pyo
+
+# Internal business/marketing drafts (not for public repo)
+_business/
