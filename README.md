@@ -33,7 +33,8 @@ anti-cheat could flag. Your account stays safe.
 ## Features
 
 - 🟢 **Automatic restore** — listens for `WM_DISPLAYCHANGE` and restores your saved monitor layout
-- 🖥️ **Simple GUI** — monitor list, live activity log, one-click manual controls
+- 🖥️ **Simple GUI** — one on/off switch, a visual map of your saved layout (with a "matches / differs" indicator), and one-click save & restore
+- 🚀 **Start with Windows** — toggle it right in the window; auto-started copies stay quietly in the tray
 - 🔔 **System tray** — keeps running when you close the window; click the tray icon to reopen
 - 💾 **Persistent profile** — your reference layout is saved to JSON and survives restarts
 - 🔒 **Single instance** — won't launch twice by accident
@@ -54,10 +55,13 @@ DisplayGuard automatically with Windows.
 
 ## Usage
 
-1. Run **DisplayGuard** (it starts minimized to the tray).
+1. Run **DisplayGuard**. (When it starts with Windows it goes straight to the tray.)
 2. Arrange your monitors the way you like, then click **Save current layout**.
 3. Play your game. If Windows changes the arrangement, DisplayGuard restores it
    automatically a couple seconds later.
+
+Want to change your layout on purpose? Flip the protection switch off, rearrange
+your monitors in Windows, click **Save current layout**, then switch it back on.
 
 ### Tray menu
 

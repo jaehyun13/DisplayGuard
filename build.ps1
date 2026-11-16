@@ -24,6 +24,12 @@ $VerContent = $VerContent -replace "'FileVersion',\s*u'[^']*'", "'FileVersion', 
 $VerContent = $VerContent -replace "'ProductVersion',\s*u'[^']*'", "'ProductVersion',   u'$Version.0'"
 $VerContent | Set-Content $VerFile -Encoding utf8
 
+# 앱 창/로그에 표시되는 버전 (display_guard.py 의 APP_VERSION)
+$PyFile = Join-Path $Root "display_guard.py"
+$PyContent = [System.IO.File]::ReadAllText($PyFile)
+$PyContent = $PyContent -replace 'APP_VERSION = "[^"]*"', "APP_VERSION = `"$Version`""
+[System.IO.File]::WriteAllText($PyFile, $PyContent, (New-Object System.Text.UTF8Encoding $false))
+
 # ── 이전 빌드 정리 ─────────────────────────────────────────────────────────
 Write-Host "[2/5] Cleaning previous build ..." -ForegroundColor Cyan
 if (Test-Path (Join-Path $Root "dist"))  { Remove-Item (Join-Path $Root "dist")  -Recurse -Force }
