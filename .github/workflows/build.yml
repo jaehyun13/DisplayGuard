@@ -1,6 +1,6 @@
 name: Build installer
 
-# Builds the DisplayGuard installer on Windows.
+# Builds the Spectra Display Studio installer on Windows.
 # - Push a tag like v1.0.0  -> builds and publishes a GitHub Release with the installer attached.
 # - Manual run (workflow_dispatch) -> builds and uploads the installer as an artifact only.
 #
@@ -16,7 +16,7 @@ on:
       version:
         description: 'Version to build (e.g. 1.0.0)'
         required: true
-        default: '1.0.0'
+        default: '2.0.0'
 
 permissions:
   contents: write   # needed to create the Release
@@ -62,14 +62,14 @@ jobs:
       - name: Upload installer artifact
         uses: actions/upload-artifact@v4
         with:
-          name: DisplayGuard-Setup-${{ steps.ver.outputs.version }}
-          path: Output/DisplayGuard-Setup-${{ steps.ver.outputs.version }}.exe
+          name: SpectraDisplayStudio-Setup-${{ steps.ver.outputs.version }}
+          path: Output/SpectraDisplayStudio-Setup-${{ steps.ver.outputs.version }}.exe
           if-no-files-found: error
 
       - name: Publish GitHub Release
         if: github.ref_type == 'tag'
         uses: softprops/action-gh-release@v2
         with:
-          files: Output/DisplayGuard-Setup-${{ steps.ver.outputs.version }}.exe
+          files: Output/SpectraDisplayStudio-Setup-${{ steps.ver.outputs.version }}.exe
           generate_release_notes: true
           draft: false

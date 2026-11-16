@@ -5,7 +5,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        Thanks for helping improve DisplayGuard! The details below (especially your
+        Thanks for helping improve Spectra Display Studio! The details below (especially your
         monitor setup) make bugs much faster to reproduce and fix.
 
   - type: textarea
@@ -70,7 +70,7 @@ body:
     id: log
     attributes:
       label: Log file (optional)
-      description: Paste the contents of `display_guard.log` (located next to the DisplayGuard.exe). It contains no personal data beyond monitor geometry.
+      description: Paste the contents of `spectra_studio.log` (located next to SpectraDisplayStudio.exe). It contains no personal data beyond monitor geometry.
       render: text
     validations:
       required: false

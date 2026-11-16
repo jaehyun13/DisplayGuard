@@ -1,149 +1,108 @@
 <div align="center">
 
-# DisplayGuard
+# Spectra Display Studio
 
-**Stop fullscreen games from wrecking your multi-monitor layout.**
+**Arrange, tune and protect your multi-monitor setup.**
 
-When you launch or quit a fullscreen game, Windows often shuffles your monitor
-arrangement — windows jump to the wrong screen, displays swap positions, your
-carefully arranged desktop is gone. DisplayGuard detects that change and snaps
-everything back automatically.
+Formerly *DisplayGuard*. It still does the thing it was made for — when a
+fullscreen game makes Windows shuffle your monitors, it snaps the layout back —
+and now adds a full studio around it: drag-and-drop arrangement, resolution and
+refresh rate, colour and HDR, window zones, and live GPU monitoring.
 
-[Download](../../releases) · [How it works](#how-it-works) · [Build from source](#build-from-source)
+[Download](../../releases) · [What it does](#what-it-does) · [Build from source](#build-from-source)
 
 </div>
 
 ---
 
-## Why
+## What it does
 
-If you game on more than one monitor, you've seen it: a fullscreen title
-(especially exclusive-fullscreen ones) triggers a display-mode change, and
-Windows rearranges your monitors. Every window you had open scatters. You fix it
-by hand, every single time.
+| Page | What you can do |
+|------|-----------------|
+| **Arrangement** | Drag monitors into place (with edge snap), pick the main display, rotate, save named layout **profiles**, and turn **layout protection** on or off. |
+| **Resolution & refresh** | Pick any mode the driver offers. A 15-second countdown reverts automatically if the picture is wrong. |
+| **Colour & HDR** | Per-monitor RGB gain, gamma, brightness and contrast (software correction), the monitor's own brightness/contrast over DDC/CI, and the Windows HDR switch. |
+| **Window zones** | Give each monitor a zone layout, then move windows into zones with `Win+Alt+←/→`, fill a monitor with `Win+Alt+↑`, or drop a window while holding **Shift**. |
+| **Hardware & GPU** | Adapter and display link details, a DDC/CI check, an exportable report, and live read-only GPU sensors (NVIDIA). |
 
-DisplayGuard runs quietly in the system tray, watches for these layout changes,
-and restores your saved arrangement within a couple of seconds — no manual
-re-dragging.
+### Layout protection
 
-**It never touches the game.** DisplayGuard works entirely at the Windows
-display/system level — no memory injection, no overlay, nothing that an
-anti-cheat could flag. Your account stays safe.
+When you launch or quit a fullscreen game, Windows often rearranges monitors —
+windows jump to the wrong screen, displays swap positions. Spectra Display Studio
+listens for the change and restores your saved layout a couple of seconds later
+(position, resolution, refresh rate, orientation and main display).
 
-## Features
-
-- 🟢 **Automatic restore** — listens for `WM_DISPLAYCHANGE` and restores your saved monitor layout
-- 🖥️ **Simple GUI** — one on/off switch, a visual map of your saved layout (with a "matches / differs" indicator), and one-click save & restore
-- 🚀 **Start with Windows** — toggle it right in the window; auto-started copies stay quietly in the tray
-- 🔔 **System tray** — keeps running when you close the window; click the tray icon to reopen
-- 💾 **Persistent profile** — your reference layout is saved to JSON and survives restarts
-- 🔒 **Single instance** — won't launch twice by accident
-- 🌐 **9 languages** — English, 한국어, 日本語, 简体中文, Deutsch, Español, Français, Русский, Português (BR); auto-detected from Windows, switchable from the tray
-- 🪶 **Lightweight** — pure `ctypes` Windows API calls, no heavyweight dependencies
+**It never touches the game.** Everything happens at the Windows display level —
+no injection, no overlay, nothing an anti-cheat could flag.
 
 ## Download
 
 Grab the latest installer from the [**Releases**](../../releases) page:
-`DisplayGuard-Setup-x.y.z.exe`. No Python required.
+`SpectraDisplayStudio-Setup-x.y.z.exe`. No Python required. It upgrades an
+existing DisplayGuard 1.x install in place and keeps your saved layout.
 
-The installer is **per-user** (no admin/UAC prompt), and offers to start
-DisplayGuard automatically with Windows.
+The installer is **per-user** (no admin/UAC prompt), and offers to start the app
+automatically with Windows.
 
 > **SmartScreen note:** until the binary builds up download reputation, Windows
 > SmartScreen may show a warning on first run. Click **More info → Run anyway**.
-> This is expected for new independent software.
 
 ## Usage
 
-1. Run **DisplayGuard**. (When it starts with Windows it goes straight to the tray.)
-2. Arrange your monitors the way you like, then click **Save current layout**.
-3. Play your game. If Windows changes the arrangement, DisplayGuard restores it
-   automatically a couple seconds later.
+1. Run **Spectra Display Studio**. (When it starts with Windows it goes straight to the tray.)
+2. On **Arrangement**, drag your monitors to match your desk and click **Apply & save** —
+   that layout is now the protected one.
+3. Play your game. If Windows changes the arrangement, it is restored automatically.
 
-Want to change your layout on purpose? Flip the protection switch off, rearrange
-your monitors in Windows, click **Save current layout**, then switch it back on.
-
-### Tray menu
-
-| Item | What it does |
-|------|--------------|
-| Open window | Show the main window |
-| Save current layout | Capture the current monitor positions as the reference |
-| Disable / Enable protection | Pause or resume automatic restore |
-| Exit | Quit completely |
+Closing the window keeps the app running in the tray; click the tray icon to reopen it.
 
 ## How it works
 
-DisplayGuard creates a hidden message-only window and receives the Windows
-`WM_DISPLAYCHANGE` notification whenever the display configuration changes. After
-a short delay (default 2 seconds, to let the game finish its mode switch) it
-compares the current layout against the saved one and, if they differ, calls
-`ChangeDisplaySettingsEx` to restore each monitor's position, resolution,
-refresh rate, and orientation.
+The app is a small background process plus a window:
+
+- **Core** (`core.py`, `displays_win.py`): pure `ctypes` Windows API calls —
+  `ChangeDisplaySettingsEx` for layouts and modes, `QueryDisplayConfig` for monitor
+  names/HDR, gamma ramps for colour, DDC/CI through `dxva2`, `RegisterHotKey` and
+  `SetWindowPos` for zones, NVML for GPU sensors.
+- **Window** (`ui/`): plain HTML/CSS/JS shown in a chromeless Microsoft Edge (or
+  Chrome) app window. It talks to the core over a local server (`server.py`) that
+  only listens on `127.0.0.1` and requires a per-launch token, so other programs
+  and web pages cannot drive your display settings through it.
+
+`--demo` runs everything against made-up monitors (`displays_mock.py`), which is
+also what happens on non-Windows machines — handy for working on the UI.
 
 ## Build from source
 
-### Requirements
-
-- Python 3.8+
-- [PyInstaller](https://pyinstaller.org/), `pystray`, `Pillow`
-- [Inno Setup 6](https://jrsoftware.org/isdl.php) (only needed to build the installer)
-
-### Run directly
-
-```powershell
-pip install -r requirements.txt
-python display_guard.py
+```
+pip install -r requirements.txt pyinstaller
+.\build.ps1 -Version 2.0.0
 ```
 
-### Build the installer
-
-The full pipeline (clean → PyInstaller → optional code-signing → Inno Setup) is
-wrapped in `build.ps1`:
-
-```powershell
-.\build.ps1 -Version 1.0.0                            # unsigned
-.\build.ps1 -Version 1.0.0 -CertThumbprint "<thumb>"  # signed with an OV cert
-```
-
-The result is `Output\DisplayGuard-Setup-<version>.exe`.
-
-### Build pipeline files
-
-```
-display_guard.py     # application source
-DisplayGuard.spec    # PyInstaller config (onedir, console=False, UPX off)
-version_info.txt     # exe version resource
-installer.iss        # Inno Setup 6 script (per-user, EN+KR, startup option)
-build.ps1            # one-shot build script
-icon.ico             # application icon (auto-generated if missing)
-requirements.txt     # Python dependencies
-```
-
-## Feedback wanted
-
-DisplayGuard is early and I'd genuinely like to know whether it fixes the problem
-on **your** setup — especially edge cases I can't test alone: mixed refresh rates,
-portrait monitors, HDR, and fractional display scaling (DPI).
-
-- 🐞 Something broken or the layout not restored right? → [open a bug report](../../issues/new?template=bug_report.yml)
-- 💡 Idea or feature request? → [tell me here](../../issues/new?template=feature_request.yml)
+Requires Windows, Python 3.12 and Inno Setup 6. To run without building:
+`python spectra_studio.py`.
 
 ## Known limitations
 
-- Windows only (uses the Windows display API directly).
-- The first build is **unsigned**, so SmartScreen warns on first run (see above).
-- Restores monitor **position, resolution, refresh rate, and orientation**; it does
-  not currently manage HDR state or per-game profiles (planned — see roadmap).
+- Windows only (10 1903+ / 11, 64-bit).
+- The window needs Microsoft Edge or Chrome (Edge ships with Windows); without
+  either it opens in your default browser.
+- The window is in Korean and English. The tray menu and activity log support
+  9 languages.
+- Display scaling (DPI) is shown but not changed — Windows gives apps no supported
+  way to set it.
+- Colour correction is by eye (gamma tables), not measured calibration, and
+  Windows ignores it while HDR is on.
+- Live GPU sensors are NVIDIA-only. Overclocking, fan/voltage control and stress
+  testing are deliberately not included.
+- Windows of programs running as administrator cannot be moved into zones.
+- The build is **unsigned**, so SmartScreen warns on first run.
 
-## Roadmap
+## Feedback
 
-DisplayGuard is free and solves the core problem completely. A **Pro** version
-(one-time purchase, not a subscription) is planned with per-game profiles and
-automatic switching, resolution/refresh/HDR/primary-display capture, and cloud
-profile sync. The free version will always cover the essential layout
-protection.
+- 🐞 Something broken? → [open a bug report](../../issues/new?template=bug_report.yml)
+- 💡 Idea or feature request? → [tell me here](../../issues/new?template=feature_request.yml)
 
 ## License
 
-[MIT](LICENSE)
+[MIT](LICENSE). Bundled fonts are listed in [`ui/fonts/LICENSES.txt`](ui/fonts/LICENSES.txt).

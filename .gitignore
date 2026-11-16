@@ -3,9 +3,9 @@ build/
 dist/
 Output/
 
-# PyInstaller work files (but keep DisplayGuard.spec — it's part of the build pipeline)
+# PyInstaller work files (but keep SpectraDisplayStudio.spec — it's part of the build pipeline)
 *.spec
-!DisplayGuard.spec
+!SpectraDisplayStudio.spec
 
 # Built executables (release binaries are attached to GitHub Releases, not committed)
 *.exe
@@ -14,6 +14,10 @@ Output/
 *.lnk
 display_guard_config.json
 display_guard.log
+spectra_config.json
+spectra_config.json.tmp
+spectra_studio.log*
+webview/
 
 # Python cache
 __pycache__/

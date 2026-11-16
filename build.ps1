@@ -9,9 +9,9 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
 $Root     = $PSScriptRoot
-$DistDir  = Join-Path $Root "dist\DisplayGuard"
+$DistDir  = Join-Path $Root "dist\SpectraDisplayStudio"
 $OutDir   = Join-Path $Root "Output"
-$SetupExe = Join-Path $OutDir "DisplayGuard-Setup-$Version.exe"
+$SetupExe = Join-Path $OutDir "SpectraDisplayStudio-Setup-$Version.exe"
 
 # ── 버전 주입 ──────────────────────────────────────────────────────────────
 Write-Host "[1/5] Injecting version $Version ..." -ForegroundColor Cyan
@@ -24,8 +24,8 @@ $VerContent = $VerContent -replace "'FileVersion',\s*u'[^']*'", "'FileVersion', 
 $VerContent = $VerContent -replace "'ProductVersion',\s*u'[^']*'", "'ProductVersion',   u'$Version.0'"
 $VerContent | Set-Content $VerFile -Encoding utf8
 
-# 앱 창/로그에 표시되는 버전 (display_guard.py 의 APP_VERSION)
-$PyFile = Join-Path $Root "display_guard.py"
+# 앱 창/로그에 표시되는 버전 (core.py 의 APP_VERSION)
+$PyFile = Join-Path $Root "core.py"
 $PyContent = [System.IO.File]::ReadAllText($PyFile)
 $PyContent = $PyContent -replace 'APP_VERSION = "[^"]*"', "APP_VERSION = `"$Version`""
 [System.IO.File]::WriteAllText($PyFile, $PyContent, (New-Object System.Text.UTF8Encoding $false))
@@ -41,17 +41,17 @@ New-Item -ItemType Directory -Path $OutDir -Force | Out-Null
 $IcoPath = Join-Path $Root "icon.ico"
 if (-not (Test-Path $IcoPath)) {
     Write-Host "  Generating icon.ico ..." -ForegroundColor DarkCyan
-    python -c "import sys; sys.path.insert(0, r'$Root'); from display_guard import ensure_ico; ensure_ico()"
+    python -c "import sys; sys.path.insert(0, r'$Root'); from spectra_studio import write_ico; write_ico('icon.ico')"
 }
 
 # ── PyInstaller ────────────────────────────────────────────────────────────
 Write-Host "[3/5] Running PyInstaller ..." -ForegroundColor Cyan
 Push-Location $Root
-python -m PyInstaller DisplayGuard.spec --noconfirm
+python -m PyInstaller SpectraDisplayStudio.spec --noconfirm
 Pop-Location
 
-if (-not (Test-Path (Join-Path $DistDir "DisplayGuard.exe"))) {
-    Write-Error "PyInstaller failed — DisplayGuard.exe not found in dist\DisplayGuard\"
+if (-not (Test-Path (Join-Path $DistDir "SpectraDisplayStudio.exe"))) {
+    Write-Error "PyInstaller failed — SpectraDisplayStudio.exe not found in dist\SpectraDisplayStudio\"
     exit 1
 }
 
@@ -60,7 +60,7 @@ if ($CertThumbprint) {
     Write-Host "[3b] Signing exe with cert $CertThumbprint ..." -ForegroundColor Cyan
     $signtool = "C:\Program Files (x86)\Windows Kits\10\bin\x64\signtool.exe"
     & $signtool sign /sha1 $CertThumbprint /tr http://timestamp.sectigo.com /td sha256 /fd sha256 `
-        (Join-Path $DistDir "DisplayGuard.exe")
+        (Join-Path $DistDir "SpectraDisplayStudio.exe")
     if ($LASTEXITCODE -ne 0) { Write-Error "signtool failed on exe"; exit 1 }
 }
 

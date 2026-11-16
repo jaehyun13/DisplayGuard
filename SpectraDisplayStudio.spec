@@ -3,11 +3,12 @@
 block_cipher = None
 
 a = Analysis(
-    ['display_guard.py'],
+    ['spectra_studio.py'],
     pathex=[],
     binaries=[],
     datas=[
         ('icon.ico', '.'),
+        ('ui', 'ui'),
     ],
     hiddenimports=[
         'pystray',
@@ -26,6 +27,14 @@ a = Analysis(
         'json',
         'logging',
         'logging.handlers',
+        'core',
+        'server',
+        'i18n',
+        'displays_win',
+        'displays_mock',
+        'gpu_nvml',
+        'winreg',
+        'http.server',
     ],
     hookspath=[],
     hooksconfig={},
@@ -52,7 +61,7 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=True,
-    name='DisplayGuard',
+    name='SpectraDisplayStudio',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -75,5 +84,5 @@ coll = COLLECT(
     strip=False,
     upx=False,
     upx_exclude=[],
-    name='DisplayGuard',
+    name='SpectraDisplayStudio',
 )

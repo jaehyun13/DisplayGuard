@@ -1,0 +1,5 @@
+Bundled fonts (so the window looks the same offline):
+
+  inter.woff2             Inter — SIL Open Font License 1.1 — https://github.com/rsms/inter
+  jetbrains-mono.woff2    JetBrains Mono — SIL Open Font License 1.1 — https://github.com/JetBrains/JetBrainsMono
+  material-symbols.woff2  Material Symbols (subset) — Apache License 2.0 — https://github.com/google/material-design-icons

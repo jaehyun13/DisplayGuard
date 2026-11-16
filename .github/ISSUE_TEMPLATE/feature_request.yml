@@ -1,5 +1,5 @@
 name: Feature request / feedback
-description: Suggest an improvement or tell us how you use DisplayGuard
+description: Suggest an improvement or tell us how you use Spectra Display Studio
 labels: ["enhancement"]
 body:
   - type: markdown
@@ -12,7 +12,7 @@ body:
     id: problem
     attributes:
       label: What problem would this solve?
-      description: What are you trying to do that DisplayGuard doesn't help with yet?
+      description: What are you trying to do that Spectra Display Studio does not help with yet?
     validations:
       required: true
 
