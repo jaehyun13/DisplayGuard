@@ -90,6 +90,158 @@ def normalize_origin(configs: List[Dict]) -> List[Dict]:
     return out
 
 
+# ─────────────────────────────────────────────────
+# Physical (real-world) layout and cursor mapping
+# ─────────────────────────────────────────────────
+
+MM_PER_INCH = 25.4
+
+
+def mm_from_inches(inches: float, w: int, h: int) -> Tuple[float, float]:
+    """Width/height in mm of a panel with this diagonal and pixel aspect ratio."""
+    diag_px = (w * w + h * h) ** 0.5
+    k = inches * MM_PER_INCH / diag_px
+    return w * k, h * k
+
+
+def _touch_side(a: Dict, b: Dict) -> Optional[str]:
+    """Where b sits against a in the Windows (pixel) layout, if they share an edge."""
+    v = min(a["y"] + a["h"], b["y"] + b["h"]) - max(a["y"], b["y"])
+    hz = min(a["x"] + a["w"], b["x"] + b["w"]) - max(a["x"], b["x"])
+    if v > 0:
+        if b["x"] == a["x"] + a["w"]:
+            return "right"
+        if b["x"] + b["w"] == a["x"]:
+            return "left"
+    if hz > 0:
+        if b["y"] == a["y"] + a["h"]:
+            return "below"
+        if b["y"] + b["h"] == a["y"]:
+            return "above"
+    return None
+
+
+def physical_layout(configs: List[Dict],
+                    mm: Dict[str, Tuple[float, float]]) -> Dict[str, Tuple[float, float, float, float]]:
+    """Real-world rectangles (x, y, w, h in mm) derived from the pixel layout.
+
+    Monitors keep their neighbours; along a shared edge, the centre of the
+    neighbour sits at the same *fraction* of the edge as it does in pixels. So the
+    pixel layout fully determines the physical one (the UI mirrors this exactly —
+    see physLayout() in ui/app.js — and inverts it when you drag in real-size view).
+    """
+    if not configs:
+        return {}
+    primary = next((c for c in configs if c["primary"]), configs[0])
+    out = {primary["name"]: (0.0, 0.0, mm[primary["name"]][0], mm[primary["name"]][1])}
+    queue = [primary]
+    while queue:
+        a = queue.pop(0)
+        ax, ay, aw, ah = out[a["name"]]
+        for b in configs:
+            if b["name"] in out:
+                continue
+            side = _touch_side(a, b)
+            if not side:
+                continue
+            bw, bh = mm[b["name"]]
+            if side in ("right", "left"):
+                x = ax + aw if side == "right" else ax - bw
+                frac = (b["y"] + b["h"] / 2 - a["y"]) / a["h"]
+                y = ay + frac * ah - bh / 2
+            else:
+                y = ay + ah if side == "below" else ay - bh
+                frac = (b["x"] + b["w"] / 2 - a["x"]) / a["w"]
+                x = ax + frac * aw - bw / 2
+            out[b["name"]] = (x, y, bw, bh)
+            queue.append(b)
+    k = mm[primary["name"]][0] / primary["w"]
+    for b in configs:          # not touching anything: keep the pixel offset, scaled
+        if b["name"] not in out:
+            out[b["name"]] = ((b["x"] - primary["x"]) * k, (b["y"] - primary["y"]) * k,
+                              mm[b["name"]][0], mm[b["name"]][1])
+    return out
+
+
+class CursorMapper:
+    """Decides where the cursor lands when it leaves one monitor for another, so
+    that it crosses where the monitors really touch on the desk rather than where
+    their pixel rectangles happen to line up.
+
+    Each monitor is (x, y, w, h, px, py, pw, ph): pixel rect + physical rect (mm).
+    """
+
+    def __init__(self, monitors: List[Tuple], start: Tuple[int, int]):
+        self.mons = [tuple(m) for m in monitors]
+        self.last = start
+
+    def _at(self, x: float, y: float):
+        for m in self.mons:
+            if m[0] <= x < m[0] + m[2] and m[1] <= y < m[1] + m[3]:
+                return m
+        return None
+
+    def move(self, x: int, y: int) -> Optional[Tuple[int, int]]:
+        """Feed every proposed cursor position. Returns a replacement position, or
+        None to let the move through unchanged."""
+        a = self._at(*self.last)
+        if a is None:
+            if self._at(x, y):
+                self.last = (x, y)
+            return None
+        ax, ay, aw, ah, apx, apy, apw, aph = a
+        if ax <= x < ax + aw and ay <= y < ay + ah:
+            self.last = (x, y)
+            return None
+        target = self._cross(a, x, y)
+        if target is None:
+            # Either Windows' own crossing is fine, or there is nothing there (a wall).
+            self.last = (x, y) if self._at(x, y) else (
+                max(ax, min(ax + aw - 1, x)), max(ay, min(ay + ah - 1, y)))
+            return None
+        self.last = target
+        return target
+
+    def _cross(self, a, x: int, y: int) -> Optional[Tuple[int, int]]:
+        ax, ay, aw, ah, apx, apy, apw, aph = a
+        over_x = x - (ax + aw - 1) if x >= ax + aw else (x - ax if x < ax else 0)
+        over_y = y - (ay + ah - 1) if y >= ay + ah else (y - ay if y < ay else 0)
+        cx = max(ax, min(ax + aw - 1, x))
+        cy = max(ay, min(ay + ah - 1, y))
+        ppx = apx + (cx - ax + 0.5) / aw * apw
+        ppy = apy + (cy - ay + 0.5) / ah * aph
+        natural = self._at(x, y)
+        horizontal = abs(over_x) >= abs(over_y)
+        if horizontal:
+            right = over_x > 0
+            edge = apx + apw if right else apx
+            cands = [b for b in self.mons if b is not a
+                     and abs((b[4] if right else b[4] + b[6]) - edge) < 1.0]
+            b = next((m for m in cands if m[5] <= ppy < m[5] + m[7]), None)
+        else:
+            down = over_y > 0
+            edge = apy + aph if down else apy
+            cands = [b for b in self.mons if b is not a
+                     and abs((b[5] if down else b[5] + b[7]) - edge) < 1.0]
+            b = next((m for m in cands if m[4] <= ppx < m[4] + m[6]), None)
+        if b is None:
+            if natural is None or natural not in cands:
+                return None
+            b = natural       # Windows lets it through here: enter at the nearest point
+        bx, by, bw, bh, bpx, bpy, bpw, bph = b
+        if horizontal:
+            tx = bx if over_x > 0 else bx + bw - 1
+            ty = max(by, min(by + bh - 1, by + int((ppy - bpy) / bph * bh)))
+            if natural is b and abs(ty - y) <= 1:
+                return None
+        else:
+            ty = by if over_y > 0 else by + bh - 1
+            tx = max(bx, min(bx + bw - 1, bx + int((ppx - bpx) / bpw * bw)))
+            if natural is b and abs(tx - x) <= 1:
+                return None
+        return tx, ty
+
+
 def short_name(device_name: str) -> str:
     return device_name.replace("\\\\.\\", "")
 
@@ -192,6 +344,8 @@ class Studio:
         self.profiles: List[Dict] = []
         self.color: Dict[str, Dict[str, int]] = {}
         self.zones: Dict = copy.deepcopy(ZONE_DEFAULT)
+        self.sizes: Dict[str, float] = {}      # user-entered diagonal (inches) per display
+        self.mouse_map = False
 
         self._lock = threading.RLock()
         self._timer: Optional[threading.Timer] = None
@@ -244,6 +398,13 @@ class Studio:
         z = data.get("zones")
         if isinstance(z, dict):
             self._merge_zones(z)
+        if isinstance(data.get("sizes"), dict):
+            for name, inches in data["sizes"].items():
+                if (isinstance(name, str) and isinstance(inches, (int, float))
+                        and not isinstance(inches, bool) and 5 <= inches <= 200):
+                    self.sizes[name] = float(inches)
+        if isinstance(data.get("mouse_map"), bool):
+            self.mouse_map = data["mouse_map"]
 
     def _persist(self) -> None:
         # Write to a temp file and swap, so a crash mid-write cannot corrupt settings.
@@ -253,7 +414,8 @@ class Studio:
                 json.dump({"configs": self.saved, "delay": self.restore_delay,
                            "enabled": self.enabled, "language": self.language,
                            "profiles": self.profiles, "color": self.color,
-                           "zones": self.zones},
+                           "zones": self.zones, "sizes": self.sizes,
+                           "mouse_map": self.mouse_map},
                           f, indent=2, ensure_ascii=False)
             os.replace(tmp, self.config_file)
         except Exception as e:
@@ -294,6 +456,15 @@ class Studio:
                                      self.on_window_dropped)
         self.loop.start()
         self._sync_hotkeys()
+        self._refresh_mouse_map()
+
+    def _after_layout_change(self) -> None:
+        """Things that must follow any change of the display layout."""
+        try:
+            self.apply_all_color(quiet=True)   # Windows resets gamma ramps on mode changes
+            self._refresh_mouse_map()
+        except Exception:
+            log.exception("post-layout refresh failed")
 
     # ── layout protection ─────────────────────────
 
@@ -321,7 +492,7 @@ class Studio:
         self.log(t("log_restore_manual"))
         ok = self.b.apply_display_configs(saved)
         self.log(t("log_restore_done") if ok else t("log_restore_error"))
-        self.apply_all_color(quiet=True)
+        self._after_layout_change()
         self._changed()
         return ok
 
@@ -345,9 +516,10 @@ class Studio:
 
     def on_display_change(self) -> None:
         with self._lock:
+            follow_up = threading.Timer(1.0, self._after_layout_change)
+            follow_up.daemon = True
+            follow_up.start()
             if not self.enabled or self._pending:
-                # Still re-apply colour: Windows resets gamma ramps on mode changes.
-                threading.Timer(1.0, self.apply_all_color, kwargs={"quiet": True}).start()
                 return
             if self._timer:
                 self._timer.cancel()
@@ -373,7 +545,7 @@ class Studio:
             with self._lock:
                 self._reset_tries()
             self.log(t("log_config_equal"))
-            self.apply_all_color(quiet=True)
+            self._after_layout_change()
             return
         now = time.monotonic()
         with self._lock:
@@ -393,7 +565,7 @@ class Studio:
             return
         ok = self.b.apply_display_configs(saved)
         self.log(t("log_auto_restore_done") if ok else t("log_auto_restore_error"))
-        self.apply_all_color(quiet=True)
+        self._after_layout_change()
         self._changed()
 
     # ── applying a layout from the UI ─────────────
@@ -472,7 +644,7 @@ class Studio:
         else:
             self._persist()
             self.log(t("log_layout_applied"))
-        self.apply_all_color(quiet=True)
+        self._after_layout_change()
         self._changed()
         return {"pending": risky}
 
@@ -487,6 +659,7 @@ class Studio:
             self.saved = self.b.get_display_configs() or self.saved
         self._persist()
         self.log(t("log_layout_applied"))
+        self._after_layout_change()
         self._changed()
 
     def revert_layout(self, auto: bool = False) -> None:
@@ -501,7 +674,7 @@ class Studio:
             self._reset_tries()
         self.b.apply_display_configs(p["prev"])
         self.log(t("log_layout_reverted"))
-        self.apply_all_color(quiet=True)
+        self._after_layout_change()
         self._changed()
 
     def identify(self) -> None:
@@ -596,6 +769,60 @@ class Studio:
             raise UserError("invalid request")
         if not self.b.ddc_set(name, key, int(value)):
             raise UserError(t("err_ddc_failed"))
+
+    # ── physical size and cursor mapping ──────────
+
+    def _mm(self, c: Dict, details: Dict) -> Tuple[float, float, str]:
+        """(width mm, height mm, source) for a display in its current orientation."""
+        w, h = c["w"], c["h"]
+        if c["name"] in self.sizes:
+            mw, mh = mm_from_inches(self.sizes[c["name"]], w, h)
+            return mw, mh, "user"
+        mm = details.get(c["name"], {}).get("mm")
+        if mm and mm[0] > 10 and mm[1] > 10:
+            mw, mh = float(mm[0]), float(mm[1])
+            if (mw > mh) != (w > h):          # reported for the unrotated panel
+                mw, mh = mh, mw
+            return mw, mh, "edid"
+        scale = details.get(c["name"], {}).get("scale") or 100
+        k = MM_PER_INCH / (96.0 * scale / 100.0)
+        return w * k, h * k, "guess"
+
+    def set_physical_size(self, name, inches) -> None:
+        if name not in {c["name"] for c in self.b.get_display_configs()}:
+            raise UserError(t("err_layout_mismatch"))
+        with self._lock:
+            if inches is None:
+                self.sizes.pop(name, None)
+            elif (isinstance(inches, (int, float)) and not isinstance(inches, bool)
+                  and 5 <= inches <= 200):
+                self.sizes[name] = round(float(inches), 1)
+            else:
+                raise UserError(t("err_size_range"))
+        self._persist()
+        self._refresh_mouse_map()
+
+    def set_mouse_map(self, enabled: bool) -> None:
+        self.mouse_map = bool(enabled)
+        self._persist()
+        self._refresh_mouse_map()
+        self.log(t("log_mouse_map_on") if self.mouse_map else t("log_mouse_map_off"))
+
+    def build_cursor_mapper(self) -> Optional[CursorMapper]:
+        configs = self.b.get_display_configs()
+        if len(configs) < 2:
+            return None
+        details = self.b.get_monitor_details()
+        mm = {c["name"]: self._mm(c, details)[:2] for c in configs}
+        phys = physical_layout(configs, mm)
+        mons = [(c["x"], c["y"], c["w"], c["h"]) + tuple(phys[c["name"]]) for c in configs]
+        return CursorMapper(mons, self.b.cursor_pos())
+
+    def _refresh_mouse_map(self) -> None:
+        if not self.loop:
+            return
+        mapper = self.build_cursor_mapper() if self.mouse_map else None
+        self.loop.set_cursor_mapper(mapper.move if mapper else None)
 
     # ── zones ─────────────────────────────────────
 
@@ -742,6 +969,10 @@ class Studio:
             for k in ("adapter", "connector", "edid", "bits_per_channel", "scale", "hdr", "work"):
                 if k in d:
                     m[k] = d[k]
+            mw, mh, source = self._mm(c, details)
+            m["mm"] = [round(mw, 1), round(mh, 1)]
+            m["mm_source"] = source
+            m["inches"] = round((mw * mw + mh * mh) ** 0.5 / MM_PER_INCH, 1)
             m["color"] = self.color.get(c["name"], dict(COLOR_DEFAULT))
             m["zone_preset"] = self._preset_for(c)
             out.append(m)
@@ -771,6 +1002,7 @@ class Studio:
                       "match": bool(saved) and configs_equal(saved, current),
                       "pending": pending},
             "monitors": monitors,
+            "mouse": {"enabled": self.mouse_map},
             "saved": saved or [],
             "profiles": profiles,
             "zones": {**self.zones, "presets": {k: [list(z) for z in v]

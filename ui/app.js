@@ -24,8 +24,9 @@ let logs = [], logSeq = 0, sig = '';
 const ui = {
   page: 'arrange', sel: null, snap: true, draft: null, drag: null, busy: false, renderQueued: false,
   modes: {}, modePick: {}, ddc: {}, hw: null, gpu: [], gpuHist: {}, gpuTimer: null, showLog: false,
-  localCountdown: null,
+  localCountdown: null, view: 'mm',
 };
+try { ui.view = localStorage.getItem('spectra-view') === 'px' ? 'px' : 'mm'; } catch (e) {}
 const lang = () => (S && S.app.language === 'ko') ? 'ko' : 'en';
 const L = (ko, en) => lang() === 'ko' ? ko : en;
 const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -189,24 +190,77 @@ function originToPrimary(list) {
   list.forEach(c => { c.x -= ox; c.y -= oy; });
 }
 
-function stageGeometry(list, el) {
-  const minX = Math.min(...list.map(c => c.x)), minY = Math.min(...list.map(c => c.y));
-  const maxX = Math.max(...list.map(c => c.x + c.w)), maxY = Math.max(...list.map(c => c.y + c.h));
+/* Real-world rectangles (mm) derived from the pixel layout. Mirrors physical_layout() in core.py. */
+function touchSide(a, b) {
+  const v = Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y), hz = Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x);
+  if (v > 0) { if (b.x === a.x + a.w) return 'right'; if (b.x + b.w === a.x) return 'left'; }
+  if (hz > 0) { if (b.y === a.y + a.h) return 'below'; if (b.y + b.h === a.y) return 'above'; }
+  return null;
+}
+function mmOf(c) {
+  const x = mon(c.name), cur = x.mm, turned = (x.w > x.h) !== (c.w > c.h);   // draft may be rotated
+  return turned ? [cur[1], cur[0]] : cur;
+}
+function physLayout(list) {
+  const primary = list.find(c => c.primary) || list[0], out = {}, mm = {};
+  list.forEach(c => mm[c.name] = mmOf(c));
+  out[primary.name] = { x: 0, y: 0, w: mm[primary.name][0], h: mm[primary.name][1] };
+  const queue = [primary];
+  while (queue.length) {
+    const a = queue.shift(), A = out[a.name];
+    for (const b of list) {
+      if (out[b.name]) continue;
+      const side = touchSide(a, b); if (!side) continue;
+      const [bw, bh] = mm[b.name]; let x, y;
+      if (side === 'right' || side === 'left') { x = side === 'right' ? A.x + A.w : A.x - bw; y = A.y + (b.y + b.h / 2 - a.y) / a.h * A.h - bh / 2; }
+      else { y = side === 'below' ? A.y + A.h : A.y - bh; x = A.x + (b.x + b.w / 2 - a.x) / a.w * A.w - bw / 2; }
+      out[b.name] = { x, y, w: bw, h: bh }; queue.push(b);
+    }
+  }
+  const k = mm[primary.name][0] / primary.w;
+  list.forEach(b => { if (!out[b.name]) out[b.name] = { x: (b.x - primary.x) * k, y: (b.y - primary.y) * k, w: mm[b.name][0], h: mm[b.name][1] }; });
+  return out;
+}
+/* The rectangles the stage draws: pixels, or real-world millimetres. */
+function viewRects(list) {
+  if (ui.view !== 'mm') return list.map(c => ({ name: c.name, x: c.x, y: c.y, w: c.w, h: c.h }));
+  const ph = physLayout(list);
+  return list.map(c => Object.assign({ name: c.name }, ph[c.name]));
+}
+function stageGeometry(rects, el) {
+  const minX = Math.min(...rects.map(c => c.x)), minY = Math.min(...rects.map(c => c.y));
+  const maxX = Math.max(...rects.map(c => c.x + c.w)), maxY = Math.max(...rects.map(c => c.y + c.h));
   const W = el.clientWidth, H = el.clientHeight;
   const k = Math.min(W * 0.86 / (maxX - minX), H * 0.74 / (maxY - minY));
   return { k, ox: (W - (maxX - minX) * k) / 2 - minX * k, oy: (H - (maxY - minY) * k) / 2 - minY * k - 10 };
 }
+/* Shared edges = where the pointer can cross from one monitor to the next. */
+function crossings(rects) {
+  const eps = ui.view === 'mm' ? 1 : 0, out = [];
+  for (let i = 0; i < rects.length; i++) for (let j = i + 1; j < rects.length; j++) {
+    const a = rects[i], b = rects[j];
+    const v0 = Math.max(a.y, b.y), v1 = Math.min(a.y + a.h, b.y + b.h), h0 = Math.max(a.x, b.x), h1 = Math.min(a.x + a.w, b.x + b.w);
+    if (v1 - v0 > eps) { if (Math.abs(b.x - (a.x + a.w)) <= eps) out.push({ x: b.x, y: v0, len: v1 - v0, vert: true }); else if (Math.abs(a.x - (b.x + b.w)) <= eps) out.push({ x: a.x, y: v0, len: v1 - v0, vert: true }); }
+    if (h1 - h0 > eps) { if (Math.abs(b.y - (a.y + a.h)) <= eps) out.push({ x: h0, y: b.y, len: h1 - h0, vert: false }); else if (Math.abs(a.y - (b.y + b.h)) <= eps) out.push({ x: h0, y: a.y, len: h1 - h0, vert: false }); }
+  }
+  return out;
+}
 function layoutStage() {
   const el = $('stage'); if (!el) return;
   const list = draft();
-  const geo = ui.drag ? ui.drag.geo : stageGeometry(list, el);
-  list.forEach(c => {
-    const node = el.querySelector(`[data-mon="${CSS.escape(c.name)}"]`); if (!node) return;
-    node.style.left = (c.x * geo.k + geo.ox + 2) + 'px'; node.style.top = (c.y * geo.k + geo.oy + 2) + 'px';
-    node.style.width = (c.w * geo.k - 4) + 'px'; node.style.height = (c.h * geo.k - 4) + 'px';
-    node.classList.toggle('narrow', c.w * geo.k < 150);
+  const rects = ui.drag ? ui.drag.rects : viewRects(list);
+  const geo = ui.drag ? ui.drag.geo : stageGeometry(rects, el);
+  rects.forEach(r => {
+    const c = list.find(x => x.name === r.name), node = el.querySelector(`[data-mon="${CSS.escape(r.name)}"]`); if (!node || !c) return;
+    node.style.left = (r.x * geo.k + geo.ox + 2) + 'px'; node.style.top = (r.y * geo.k + geo.oy + 2) + 'px';
+    node.style.width = (r.w * geo.k - 4) + 'px'; node.style.height = (r.h * geo.k - 4) + 'px';
+    node.classList.toggle('narrow', r.w * geo.k < 150);
     const pos = node.querySelector('[data-pos]'); if (pos) pos.textContent = `X: ${Math.round(c.x)}, Y: ${Math.round(c.y)}`;
   });
+  const layer = $('cross');
+  if (layer) layer.innerHTML = ui.drag && ui.drag.moved ? '' : crossings(rects).map(s => s.vert
+    ? `<i style="left:${s.x * geo.k + geo.ox - 2}px;top:${s.y * geo.k + geo.oy + 6}px;width:4px;height:${Math.max(0, s.len * geo.k - 12)}px"></i>`
+    : `<i style="left:${s.x * geo.k + geo.ox + 6}px;top:${s.y * geo.k + geo.oy - 2}px;height:4px;width:${Math.max(0, s.len * geo.k - 12)}px"></i>`).join('');
 }
 
 function pageArrange() {
@@ -226,9 +280,15 @@ function pageArrange() {
       <div class="row between" style="padding:0 4px">
         <div class="row gap-xs"><span class="lbl dim caps">Spatial Staging Viewport</span><span class="lbl dim">•</span>
           <span class="lbl muted">${L('가상 데스크톱', 'Virtual desktop')} ${bw} × ${bh}px</span></div>
+        <div class="row">
+        <div class="seg" style="grid-template-columns:repeat(2,auto);padding:2px">
+          <button class="${ui.view === 'mm' ? 'on' : ''}" data-act="view" data-view="mm" style="flex-direction:row;padding:4px 10px">${L('실제 크기 기준', 'Real size')}</button>
+          <button class="${ui.view === 'px' ? 'on' : ''}" data-act="view" data-view="px" style="flex-direction:row;padding:4px 10px">${L('해상도 기준', 'By resolution')}</button>
+        </div>
         <div class="row gap-xs inset" style="padding:2px">
           ${[['top', 'align_vertical_top', L('상단 맞춤', 'Align top')], ['center', 'align_vertical_center', L('중앙 맞춤', 'Align centre')], ['bottom', 'align_vertical_bottom', L('하단 맞춤', 'Align bottom')]]
             .map(([a, i, tt]) => `<button class="btn sm ghost" title="${tt}" data-act="align" data-how="${a}" ${sel.primary ? 'disabled' : ''}>${ms(i)}</button>`).join('')}
+        </div>
         </div>
       </div>
       <div class="stage" id="stage">
@@ -237,10 +297,21 @@ function pageArrange() {
             <div class="row between"><span class="row gap-xs">${c.primary ? `<span class="chip pri">${x.number}</span><span class="lbl c-primary bold row gap-xs">${ms('star', '')}${L('주 모니터', 'Main')}</span>` : `<span class="lbl dim">${esc(x.short || '')}</span>`}</span>
               <span class="chip">${ROT()[c.rot]}</span></div>
             <div class="col" style="align-items:center;gap:2px"><span class="big ${c.name === sel.name ? '' : 'muted'}">${x.number || ''}</span>
-              <span class="lbl-md ${c.primary ? 'c-primary' : 'dim'}">${c.w} × ${c.h}</span></div>
+              ${x.inches ? `<span class="lbl-md ${c.primary ? 'c-primary' : 'muted'}">${x.inches}″</span>` : ''}
+              <span class="lbl ${c.primary ? 'c-primary' : 'dim'}" style="white-space:nowrap">${c.w} × ${c.h}</span></div>
             <div class="row between lbl muted"><span class="truncate">${esc(x.label || '')}</span><span class="dim" data-pos></span></div>
           </div>`; }).join('')}
+        <div id="cross" class="cross"></div>
         <div class="hint lbl">${ms('drag_pan', 'c-primary')}${L('디스플레이를 드래그하여 책상 위 실제 모니터 위치와 맞게 정렬하세요', 'Drag the displays so they match where your monitors really sit')}</div>
+      </div>
+      <div class="lbl dim row gap-xs"><i style="display:inline-block;width:18px;height:4px;border-radius:2px;background:var(--tertiary)"></i>
+        ${ui.view === 'mm' ? L('초록 선 = 실제 모니터가 맞닿은 구간. "마우스 이동 보정"을 켜면 마우스가 정확히 이 구간으로 넘어갑니다.', 'Green line = where the monitors really touch. With "Cursor mapping" on, the pointer crosses exactly there.')
+          : L('초록 선 = Windows가 마우스를 넘겨주는 구간 (픽셀 기준).', 'Green line = where Windows lets the pointer cross (in pixels).')}</div>
+      <div class="card">
+        <div class="card-head"><div class="row">${ms('drag_pan', 'c-primary')}<span class="h-sm">${L('마우스 이동 보정', 'Cursor mapping')}</span>
+          ${S.mouse.enabled ? `<span class="chip ok">${L('사용 중', 'On')}</span>` : ''}</div>${sw('mouse', S.mouse.enabled, '', list.length < 2)}</div>
+        <div class="body-sm muted">${L('크기나 해상도가 다른 모니터 사이를 넘어갈 때 마우스가 위아래로 튀거나 벽에 막히는 현상을 없앱니다. "실제 크기 기준" 화면에서 모니터를 책상 위 실제 위치대로 놓으면, 마우스가 그 위치 그대로 옆 모니터로 넘어갑니다.', 'Stops the pointer from jumping up or down — or hitting an invisible wall — when it moves between monitors of different size or resolution. Place the monitors in "Real size" view the way they sit on your desk and the pointer crosses at that same spot.')}</div>
+        <div class="lbl dim">${L('게임이 마우스를 화면 안에 가둔 동안에는 동작하지 않습니다. 넘어가는 위치가 어색하면 오른쪽에서 각 모니터의 실제 화면 크기(인치)를 확인하세요.', 'Inactive while a game confines the pointer. If the crossing point feels off, check each monitor’s real screen size (inches) on the right.')}</div>
       </div>
       <div class="card">
         <div class="card-head"><div class="row">${ms('shield', 'c-primary')}<span class="h-sm">${L('배치 보호', 'Layout protection')}</span></div>${sw('guard', g.enabled)}</div>
@@ -262,6 +333,11 @@ function pageArrange() {
           <input type="checkbox" class="chk" data-in="primary" ${sel.primary ? 'checked disabled' : ''}></label>
         <div class="col gap-xs"><span class="lbl dim">${L('화면 방향 (Orientation)', 'Orientation')}</span>
           <div class="seg" style="grid-template-columns:repeat(4,1fr)">${ROT().map((r, i) => `<button class="${sel.rot === i ? 'on' : ''}" data-act="rotate" data-rot="${i}">${ms('monitor', '')}<span style="${i % 2 ? '' : ''}">${r}</span></button>`).join('')}</div></div>
+        <div class="col gap-xs"><div class="row between"><span class="lbl dim">${L('실제 화면 크기 (대각선, 인치)', 'Real screen size (diagonal, inches)')}</span>
+            <span class="chip ${info.mm_source === 'guess' ? 'warn' : info.mm_source === 'user' ? 'soft' : 'ok'}">${info.mm_source === 'user' ? L('직접 입력', 'Entered by you') : info.mm_source === 'edid' ? L('모니터에서 자동 인식', 'Read from monitor') : L('추정값 — 입력 권장', 'Estimate — please enter')}</span></div>
+          <div class="row"><input class="txt" type="number" id="size-inches" min="5" max="200" step="0.1" value="${info.inches || ''}" data-in="size-inches">
+            <button class="btn" data-act="size-auto" ${info.mm_source === 'user' ? '' : 'disabled'} title="${L('자동 인식 값으로 되돌리기', 'Back to the detected value')}">${ms('restart_alt')}${L('자동', 'Auto')}</button></div>
+          <span class="lbl dim">${info.mm ? `${Math.round(info.mm[0])} × ${Math.round(info.mm[1])} mm` : ''}</span></div>
         <div class="col gap-xs mono" style="font-size:11px">
           <div class="kv"><span class="dim">${L('위치', 'Position')}</span><span>(${sel.x}, ${sel.y})</span></div>
           <div class="kv"><span class="dim">${L('해상도', 'Resolution')}</span><span>${sel.w} × ${sel.h}${sel.freq > 1 ? ' @ ' + sel.freq + 'Hz' : ''}</span></div>
@@ -293,7 +369,8 @@ function stagePointerDown(ev) {
   const node = ev.target.closest('.mon'); if (!node || !$('stage') || node.classList.contains('static')) return;
   const list = draft(), c = list.find(x => x.name === node.dataset.mon); if (!c) return;
   ui.sel = c.name;
-  ui.drag = { c, node, sx: ev.clientX, sy: ev.clientY, x0: c.x, y0: c.y, geo: stageGeometry(list, $('stage')), moved: false };
+  const rects = viewRects(list), r = rects.find(x => x.name === c.name);
+  ui.drag = { c, r, rects, node, sx: ev.clientX, sy: ev.clientY, x0: r.x, y0: r.y, geo: stageGeometry(rects, $('stage')), moved: false };
   node.setPointerCapture(ev.pointerId);
 }
 function stagePointerMove(ev) {
@@ -301,16 +378,39 @@ function stagePointerMove(ev) {
   const dx = ev.clientX - d.sx, dy = ev.clientY - d.sy;
   if (!d.moved && Math.abs(dx) + Math.abs(dy) < 4) return;
   d.moved = true; d.node.classList.add('drag');
-  d.c.x = d.x0 + dx / d.geo.k; d.c.y = d.y0 + dy / d.geo.k;
+  d.r.x = d.x0 + dx / d.geo.k; d.r.y = d.y0 + dy / d.geo.k;
   layoutStage();
+}
+/* Real-size view: turn where the monitor was dropped (mm) back into a pixel position. */
+function dropPhysical(d, list) {
+  const others = d.rects.filter(x => x !== d.r);
+  if (!settle(d.r, others, ui.snap)) return false;
+  let best = null;
+  others.forEach(o => {
+    const v = Math.min(o.y + o.h, d.r.y + d.r.h) - Math.max(o.y, d.r.y), hz = Math.min(o.x + o.w, d.r.x + d.r.w) - Math.max(o.x, d.r.x);
+    const sides = [['right', Math.abs(d.r.x - (o.x + o.w)), v], ['left', Math.abs(d.r.x + d.r.w - o.x), v], ['below', Math.abs(d.r.y - (o.y + o.h)), hz], ['above', Math.abs(d.r.y + d.r.h - o.y), hz]];
+    sides.forEach(([side, gap, ov]) => { if (gap <= 1.5 && ov > 0 && (!best || ov > best.ov)) best = { o, side, ov }; });
+  });
+  if (!best) return false;
+  const o = best.o, oc = list.find(x => x.name === o.name), c = d.c;
+  if (best.side === 'right' || best.side === 'left') {
+    const f = (d.r.y + d.r.h / 2 - o.y) / o.h;
+    c.x = best.side === 'right' ? oc.x + oc.w : oc.x - c.w; c.y = Math.round(oc.y + f * oc.h - c.h / 2);
+  } else {
+    const f = (d.r.x + d.r.w / 2 - o.x) / o.w;
+    c.y = best.side === 'below' ? oc.y + oc.h : oc.y - c.h; c.x = Math.round(oc.x + f * oc.w - c.w / 2);
+  }
+  return settle(c, list.filter(x => x !== c), false);
 }
 function stagePointerUp() {
   const d = ui.drag; if (!d) return;
   ui.drag = null;
   if (d.moved) {
-    const list = draft();
-    d.c.x = Math.round(d.c.x); d.c.y = Math.round(d.c.y);
-    if (!settle(d.c, list.filter(x => x !== d.c), ui.snap)) { d.c.x = d.x0; d.c.y = d.y0; }
+    const list = draft(), keep = { x: d.c.x, y: d.c.y };
+    let ok;
+    if (ui.view === 'mm') ok = dropPhysical(d, list);
+    else { d.c.x = Math.round(d.r.x); d.c.y = Math.round(d.r.y); ok = settle(d.c, list.filter(x => x !== d.c), ui.snap); }
+    if (!ok) { d.c.x = keep.x; d.c.y = keep.y; }
     originToPrimary(list);
   }
   render();
@@ -686,11 +786,22 @@ const actions = {
   snapshot() { call('snapshot', {}, L('현재 배치를 기준으로 저장했습니다', 'Current layout saved as reference')); },
   restore() { call('restore', {}, L('저장된 배치로 복원했습니다', 'Restored the saved layout')); },
   'toggle-log'() { ui.showLog = !ui.showLog; render(); },
+  view(el) { ui.view = el.dataset.view; try { localStorage.setItem('spectra-view', ui.view); } catch (e) {} render(); },
+  'size-auto'() { call('size', { name: ui.sel, inches: null }); },
   align(el) {
     const list = draft(), c = list.find(x => x.name === ui.sel), p = list.find(x => x.primary);
     if (!c || !p || c === p) return;
-    c.y = el.dataset.how === 'top' ? p.y : el.dataset.how === 'bottom' ? p.y + p.h - c.h : Math.round(p.y + (p.h - c.h) / 2);
-    settle(c, list.filter(x => x !== c), false); originToPrimary(list); render();
+    const how = el.dataset.how;
+    if (ui.view === 'mm') {      // align the real edges: move the monitor's physical rect, then convert back
+      const rects = viewRects(list), r = rects.find(x => x.name === c.name), pr = rects.find(x => x.name === p.name);
+      r.y = how === 'top' ? pr.y : how === 'bottom' ? pr.y + pr.h - r.h : pr.y + (pr.h - r.h) / 2;
+      const keep = { x: c.x, y: c.y };
+      if (!dropPhysical({ c, r, rects }, list)) { c.x = keep.x; c.y = keep.y; }
+    } else {
+      c.y = how === 'top' ? p.y : how === 'bottom' ? p.y + p.h - c.h : Math.round(p.y + (p.h - c.h) / 2);
+      settle(c, list.filter(x => x !== c), false);
+    }
+    originToPrimary(list); render();
   },
   rotate(el) {
     const list = draft(), c = list.find(x => x.name === ui.sel), rot = +el.dataset.rot; if (!c || c.rot === rot) return;
@@ -726,6 +837,8 @@ const actions = {
 };
 const inputs = {
   snap(el) { ui.snap = el.checked; },
+  mouse(el) { call('mouse', { enabled: el.checked }); },
+  'size-inches'(el) { const v = parseFloat(el.value); if (v > 0) call('size', { name: ui.sel, inches: v }); },
   guard(el) { call('guard', { enabled: el.checked }); },
   primary(el) { if (!el.checked) return; const list = draft(); list.forEach(c => c.primary = c.name === ui.sel); originToPrimary(list); render(); },
   size(el) { const [w, h] = el.value.split('x').map(Number); setPick(selMon().name, w, h, (ui.modePick[selMon().name] || selMon()).freq); },

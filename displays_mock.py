@@ -30,15 +30,15 @@ _configs: List[Dict] = [
 _details: Dict[str, Dict] = {
     "\\\\.\\DISPLAY1": {"adapter": "Demo Graphics Adapter", "label": "Demo 32\" 4K",
                         "connector": "DisplayPort", "edid": "DEM-3201",
-                        "bits_per_channel": 10, "scale": 150,
+                        "bits_per_channel": 10, "scale": 150, "mm": [708, 398],
                         "hdr": {"supported": True, "enabled": False}},
     "\\\\.\\DISPLAY2": {"adapter": "Demo Graphics Adapter", "label": "Demo 27\" QHD",
                         "connector": "DisplayPort", "edid": "DEM-2702",
-                        "bits_per_channel": 8, "scale": 100,
+                        "bits_per_channel": 8, "scale": 100, "mm": [597, 336],
                         "hdr": {"supported": False, "enabled": False}},
-    "\\\\.\\DISPLAY3": {"adapter": "Demo Graphics Adapter", "label": "Demo 27\" QHD B",
+    "\\\\.\\DISPLAY3": {"adapter": "Demo Graphics Adapter", "label": "Demo 24\" QHD",
                         "connector": "HDMI", "edid": "DEM-2703",
-                        "bits_per_channel": 8, "scale": 100,
+                        "bits_per_channel": 8, "scale": 100, "mm": [527, 296],
                         "hdr": {"supported": True, "enabled": True}},
 }
 
@@ -192,6 +192,9 @@ class EventLoop:
 
     def set_hotkeys(self, hotkeys: Dict[str, Tuple[int, int]]) -> None:
         pass
+
+    def set_cursor_mapper(self, fn) -> None:
+        self.cursor_mapper = fn
 
 
 def identify(numbered) -> None:

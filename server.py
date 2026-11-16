@@ -257,6 +257,10 @@ class AppServer:
             s.set_hdr(body.get("name"), body.get("enabled"))
         elif path == "ddc":
             s.ddc_set(body.get("name"), body.get("key"), body.get("value"))
+        elif path == "size":
+            s.set_physical_size(body.get("name"), body.get("inches"))
+        elif path == "mouse":
+            s.set_mouse_map(bool(body.get("enabled")))
         elif path == "zones":
             s.set_zones(body)
         elif path == "zones/tile":

@@ -144,6 +144,9 @@ kbd { white-space: nowrap; padding: 2px 6px; border-radius: 2px; background: var
 .mon.static { cursor: default; }
 .mon [data-pos] { white-space: nowrap; }
 .mon.narrow .truncate, .mon.narrow .chip:not(.pri) { display: none; }
+.cross { position: absolute; inset: 0; pointer-events: none; z-index: 4; }
+.cross i { position: absolute; border-radius: 2px; background: var(--tertiary); box-shadow: 0 0 8px rgba(78, 222, 163, .7); }
+input.txt[type=number] { font-size: 13px; }
 .zone { position: absolute; background: var(--high); border-radius: 3px; display: flex; align-items: center; justify-content: center; color: var(--outline); font: 500 10px var(--mono); }
 .zone.hero { background: rgba(173, 198, 255, .2); color: var(--primary); box-shadow: inset 0 0 0 1px rgba(173, 198, 255, .4); }
 .preview { position: relative; height: 72px; background: var(--lowest); border-radius: 2px; }

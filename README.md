@@ -19,7 +19,7 @@ refresh rate, colour and HDR, window zones, and live GPU monitoring.
 
 | Page | What you can do |
 |------|-----------------|
-| **Arrangement** | Drag monitors into place (with edge snap), pick the main display, rotate, save named layout **profiles**, and turn **layout protection** on or off. |
+| **Arrangement** | Drag monitors into place (with edge snap) in a **real-size view** that draws each monitor at its true physical size, pick the main display, rotate, save named layout **profiles**, and turn **layout protection** on or off. Optional **cursor mapping** makes the pointer cross between monitors where they really touch on your desk, instead of jumping or hitting an invisible wall when sizes or resolutions differ. |
 | **Resolution & refresh** | Pick any mode the driver offers. A 15-second countdown reverts automatically if the picture is wrong. |
 | **Colour & HDR** | Per-monitor RGB gain, gamma, brightness and contrast (software correction), the monitor's own brightness/contrast over DDC/CI, and the Windows HDR switch. |
 | **Window zones** | Give each monitor a zone layout, then move windows into zones with `Win+Alt+←/→`, fill a monitor with `Win+Alt+↑`, or drop a window while holding **Shift**. |
@@ -96,6 +96,8 @@ Requires Windows, Python 3.12 and Inno Setup 6. To run without building:
 - Live GPU sensors are NVIDIA-only. Overclocking, fan/voltage control and stress
   testing are deliberately not included.
 - Windows of programs running as administrator cannot be moved into zones.
+- Cursor mapping is off by default, pauses while a game confines the pointer, and
+  relies on the monitor reporting its size (you can enter the diagonal yourself).
 - The build is **unsigned**, so SmartScreen warns on first run.
 
 ## Feedback

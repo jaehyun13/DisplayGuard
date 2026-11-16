@@ -101,6 +101,9 @@ TRANSLATIONS: Dict[str, Dict[str, str]] = {
         "log_hdr_off": "HDR off: {name}",
         "err_ddc_failed": "The monitor did not accept the command (DDC/CI may be disabled).",
         "log_tiled": "Arranged {count} windows into zones",
+        "err_size_range": "Enter a screen size between 5 and 200 inches.",
+        "log_mouse_map_on": "Cursor mapping on: the pointer crosses monitors by their real-world position",
+        "log_mouse_map_off": "Cursor mapping off",
         "lang_changed":          "Language changed to {lang}",
     },
     "ko": {
@@ -170,6 +173,9 @@ TRANSLATIONS: Dict[str, Dict[str, str]] = {
         "log_hdr_off": "HDR 끔: {name}",
         "err_ddc_failed": "모니터가 명령을 받지 않았습니다 (DDC/CI가 꺼져 있을 수 있습니다).",
         "log_tiled": "창 {count}개를 분할 구역에 정렬했습니다",
+        "err_size_range": "화면 크기는 5~200인치 사이로 입력하세요.",
+        "log_mouse_map_on": "마우스 이동 보정 켬: 실제 모니터 위치 기준으로 경계를 넘어갑니다",
+        "log_mouse_map_off": "마우스 이동 보정 끔",
         "lang_changed":          "언어가 {lang}(으)로 변경됨",
     },
     "ja": {

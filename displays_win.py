@@ -194,6 +194,11 @@ class MSG(ctypes.Structure):
                 ("time", wt.DWORD), ("pt", wt.POINT)]
 
 
+class MSLLHOOKSTRUCT(ctypes.Structure):
+    _fields_ = [("pt", wt.POINT), ("mouseData", wt.DWORD), ("flags", wt.DWORD),
+                ("time", wt.DWORD), ("dwExtraInfo", ctypes.c_size_t)]
+
+
 WNDPROC_TYPE = ctypes.WINFUNCTYPE(LRESULT, wt.HWND, ctypes.c_uint, wt.WPARAM, wt.LPARAM)
 MONITORENUMPROC = ctypes.WINFUNCTYPE(wt.BOOL, wt.HMONITOR, wt.HDC,
                                      ctypes.POINTER(wt.RECT), wt.LPARAM)
@@ -285,6 +290,15 @@ _sig(user32.GetAsyncKeyState, ctypes.c_short, ctypes.c_int)
 _sig(gdi32.CreateDCW, wt.HDC, wt.LPCWSTR, wt.LPCWSTR, wt.LPCWSTR, ctypes.c_void_p)
 _sig(gdi32.DeleteDC, wt.BOOL, wt.HDC)
 _sig(gdi32.SetDeviceGammaRamp, wt.BOOL, wt.HDC, ctypes.c_void_p)
+_sig(gdi32.GetDeviceCaps, ctypes.c_int, wt.HDC, ctypes.c_int)
+
+HOOKPROC = ctypes.WINFUNCTYPE(LRESULT, ctypes.c_int, wt.WPARAM, wt.LPARAM)
+_sig(user32.SetWindowsHookExW, wt.HANDLE, ctypes.c_int, HOOKPROC, wt.HMODULE, wt.DWORD)
+_sig(user32.UnhookWindowsHookEx, wt.BOOL, wt.HANDLE)
+_sig(user32.CallNextHookEx, LRESULT, wt.HANDLE, ctypes.c_int, wt.WPARAM, wt.LPARAM)
+_sig(user32.SetCursorPos, wt.BOOL, ctypes.c_int, ctypes.c_int)
+_sig(user32.GetClipCursor, wt.BOOL, ctypes.POINTER(wt.RECT))
+_sig(user32.GetSystemMetrics, ctypes.c_int, ctypes.c_int)
 
 
 def _optional_dll(name: str):
@@ -501,6 +515,15 @@ def get_monitor_details() -> Dict[str, Dict]:
         if name in hmons:
             hmon, work = hmons[name]
             d["work"] = list(work)
+            # Physical panel size in millimetres (from the monitor's EDID).
+            hdc = gdi32.CreateDCW(None, name, None, None)
+            if hdc:
+                try:
+                    mm = (gdi32.GetDeviceCaps(hdc, 4), gdi32.GetDeviceCaps(hdc, 6))
+                    if mm[0] > 0 and mm[1] > 0:
+                        d["mm"] = list(mm)
+                finally:
+                    gdi32.DeleteDC(hdc)
             if shcore:
                 dx, dy = ctypes.c_uint(), ctypes.c_uint()
                 if shcore.GetDpiForMonitor(hmon, 0, ctypes.byref(dx), ctypes.byref(dy)) == 0:
@@ -756,6 +779,8 @@ def list_app_windows() -> List[int]:
 MOD_ALT, MOD_CONTROL, MOD_SHIFT, MOD_WIN, MOD_NOREPEAT = 1, 2, 4, 8, 0x4000
 EVENT_SYSTEM_MOVESIZEEND = 0x000B
 _WM_SET_HOTKEYS = WM_APP + 1
+_WM_SET_MOUSE_HOOK = WM_APP + 2
+WH_MOUSE_LL, WM_MOUSEMOVE, LLMHF_INJECTED = 14, 0x0200, 0x01
 
 
 class EventLoop:
@@ -773,6 +798,9 @@ class EventLoop:
         self.failed: List[str] = []
         self._lock = threading.Lock()
         self._ready = threading.Event()
+        self._cursor_fn = None
+        self._mouse_hook = None
+        self._mouse_cb = None
 
     def start(self) -> None:
         threading.Thread(target=self._run, daemon=True, name="Win32Loop").start()
@@ -784,6 +812,58 @@ class EventLoop:
             self._wanted = dict(hotkeys)
         if self._thread_id:
             user32.PostThreadMessageW(self._thread_id, _WM_SET_HOTKEYS, 0, 0)
+
+    def set_cursor_mapper(self, fn) -> None:
+        """fn(x, y) → (x, y) or None, called for every mouse move; None switches it off."""
+        self._cursor_fn = fn
+        if self._thread_id:
+            user32.PostThreadMessageW(self._thread_id, _WM_SET_MOUSE_HOOK, 0, 0)
+
+    @staticmethod
+    def _cursor_is_clipped() -> bool:
+        """True while an app (typically a game) confines the cursor to an area."""
+        r = wt.RECT()
+        if not user32.GetClipCursor(ctypes.byref(r)):
+            return False
+        vx, vy = user32.GetSystemMetrics(76), user32.GetSystemMetrics(77)
+        vw, vh = user32.GetSystemMetrics(78), user32.GetSystemMetrics(79)
+        return (r.left > vx or r.top > vy or r.right < vx + vw or r.bottom < vy + vh)
+
+    def _apply_mouse_hook(self) -> None:
+        want = self._cursor_fn is not None
+        if want and not self._mouse_hook:
+            def proc(n_code, w_param, l_param):
+                fn = self._cursor_fn
+                if n_code == 0 and w_param == WM_MOUSEMOVE and fn is not None:
+                    try:
+                        info = ctypes.cast(l_param, ctypes.POINTER(MSLLHOOKSTRUCT)).contents
+                        if not (info.flags & LLMHF_INJECTED):
+                            target = fn(info.pt.x, info.pt.y)
+                            if target is not None and not self._cursor_is_clipped():
+                                user32.SetCursorPos(target[0], target[1])
+                                return 1          # swallow the original move
+                    except Exception:
+                        log.exception("cursor mapper failed")
+                return user32.CallNextHookEx(None, n_code, w_param, l_param)
+
+            self._mouse_cb = HOOKPROC(proc)
+            self._mouse_hook = user32.SetWindowsHookExW(
+                WH_MOUSE_LL, self._mouse_cb, kernel32.GetModuleHandleW(None), 0)
+            if not self._mouse_hook:
+                log.error("SetWindowsHookExW failed (%d)", ctypes.get_last_error())
+        elif not want and self._mouse_hook:
+            user32.UnhookWindowsHookEx(self._mouse_hook)
+            self._mouse_hook = None
+
+    def _in_background(self, fn, *args) -> None:
+        """Run a handler off the loop thread: while the mouse hook is installed this
+        thread must stay responsive, or the pointer would stutter."""
+        def run():
+            try:
+                fn(*args)
+            except Exception:
+                log.exception("handler failed")
+        threading.Thread(target=run, daemon=True).start()
 
     def _apply_hotkeys(self) -> None:
         for hk_id in list(self._registered):
@@ -815,10 +895,7 @@ class EventLoop:
 
         def win_event(_hook, event, hwnd, id_object, _id_child, _thread, _time):
             if event == EVENT_SYSTEM_MOVESIZEEND and hwnd and id_object == 0:
-                try:
-                    self._on_window_dropped(hwnd)
-                except Exception:
-                    log.exception("window-drop handler failed")
+                self._in_background(self._on_window_dropped, hwnd)
 
         # Keep references alive for the lifetime of the loop.
         wnd_cb, event_cb = WNDPROC_TYPE(wnd_proc), WINEVENTPROC(win_event)
@@ -844,6 +921,7 @@ class EventLoop:
         # Touch the queue so PostThreadMessage works before the first GetMessage.
         user32.GetAsyncKeyState(0)
         self._apply_hotkeys()
+        self._apply_mouse_hook()
         self._ready.set()
         while True:
             ret = user32.GetMessageW(ctypes.byref(msg), None, 0, 0)
@@ -852,10 +930,10 @@ class EventLoop:
             if msg.message == WM_HOTKEY:
                 action = self._registered.get(int(msg.wParam))
                 if action:
-                    try:
-                        self._on_hotkey(action)
-                    except Exception:
-                        log.exception("hotkey handler failed")
+                    self._in_background(self._on_hotkey, action)
+                continue
+            if msg.message == _WM_SET_MOUSE_HOOK:
+                self._apply_mouse_hook()
                 continue
             if msg.message == _WM_SET_HOTKEYS:
                 self._apply_hotkeys()

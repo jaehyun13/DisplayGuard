@@ -10,6 +10,8 @@ managing a multi-monitor setup.
 
 - 🖥️ **Arrangement** — drag monitors into place with edge snap, choose the main
   display, rotate, and save named layout profiles you can switch between.
+  A real-size view draws monitors at their true physical size, and optional
+  **cursor mapping** makes the pointer cross monitors where they really touch.
 - ⚡ **Resolution & refresh rate** — pick any mode the driver offers; a 15-second
   countdown reverts automatically if the picture is wrong.
 - 🎨 **Colour & HDR** — per-monitor RGB gain, gamma, brightness and contrast, the
