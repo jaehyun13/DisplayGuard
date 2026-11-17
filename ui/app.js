@@ -190,35 +190,42 @@ function originToPrimary(list) {
   list.forEach(c => { c.x -= ox; c.y -= oy; });
 }
 
-/* Real-world rectangles (mm) derived from the pixel layout. Mirrors physical_layout() in core.py. */
-function touchSide(a, b) {
-  const v = Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y), hz = Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x);
-  if (v > 0) { if (b.x === a.x + a.w) return 'right'; if (b.x + b.w === a.x) return 'left'; }
-  if (hz > 0) { if (b.y === a.y + a.h) return 'below'; if (b.y + b.h === a.y) return 'above'; }
-  return null;
+/* Real-world rectangles (mm) derived from the pixel layout. Mirrors physical_layout() in core.py —
+   keep the two identical (same placement order, same tie-breaks). */
+function axisPlace(a0, al, A0, Al, b0, bl, Bl) {
+  if (b0 >= a0 + al) return A0 + Al + (b0 - (a0 + al)) * Al / al;
+  if (b0 + bl <= a0) return A0 - Bl - (a0 - (b0 + bl)) * Al / al;
+  const m = (Math.max(a0, b0) + Math.min(a0 + al, b0 + bl)) / 2;
+  return A0 + (m - a0) / al * Al - (m - b0) / bl * Bl;
 }
+function pixelLink(a, b) {
+  const gx = Math.max(0, Math.max(a.x, b.x) - Math.min(a.x + a.w, b.x + b.w));
+  const gy = Math.max(0, Math.max(a.y, b.y) - Math.min(a.y + a.h, b.y + b.h));
+  const ox = Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x), oy = Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y);
+  return [gx + gy, Math.max(0, ox, oy)];
+}
+const cmpKey = (p, q) => { for (let i = 0; i < p.length; i++) { if (p[i] < q[i]) return -1; if (p[i] > q[i]) return 1; } return 0; };
 function mmOf(c) {
   const x = mon(c.name), cur = x.mm, turned = (x.w > x.h) !== (c.w > c.h);   // draft may be rotated
   return turned ? [cur[1], cur[0]] : cur;
 }
-function physLayout(list) {
-  const primary = list.find(c => c.primary) || list[0], out = {}, mm = {};
-  list.forEach(c => mm[c.name] = mmOf(c));
-  out[primary.name] = { x: 0, y: 0, w: mm[primary.name][0], h: mm[primary.name][1] };
-  const queue = [primary];
-  while (queue.length) {
-    const a = queue.shift(), A = out[a.name];
+function physLayout(list, mmFn = mmOf) {
+  const byName = {}, out = {};
+  list.forEach(c => byName[c.name] = c);
+  const primary = list.find(c => c.primary) || list[0], pm = mmFn(primary);
+  out[primary.name] = { x: 0, y: 0, w: pm[0], h: pm[1] };
+  while (Object.keys(out).length < list.length) {
+    let best = null;
     for (const b of list) {
       if (out[b.name]) continue;
-      const side = touchSide(a, b); if (!side) continue;
-      const [bw, bh] = mm[b.name]; let x, y;
-      if (side === 'right' || side === 'left') { x = side === 'right' ? A.x + A.w : A.x - bw; y = A.y + (b.y + b.h / 2 - a.y) / a.h * A.h - bh / 2; }
-      else { y = side === 'below' ? A.y + A.h : A.y - bh; x = A.x + (b.x + b.w / 2 - a.x) / a.w * A.w - bw / 2; }
-      out[b.name] = { x, y, w: bw, h: bh }; queue.push(b);
+      for (const an of Object.keys(out)) {
+        const [gap, shared] = pixelLink(byName[an], b), key = [gap, -shared, b.name, an];
+        if (!best || cmpKey(key, best) < 0) best = key;
+      }
     }
+    const a = byName[best[3]], b = byName[best[2]], A = out[a.name], [bw, bh] = mmFn(b);
+    out[b.name] = { x: axisPlace(a.x, a.w, A.x, A.w, b.x, b.w, bw), y: axisPlace(a.y, a.h, A.y, A.h, b.y, b.h, bh), w: bw, h: bh };
   }
-  const k = mm[primary.name][0] / primary.w;
-  list.forEach(b => { if (!out[b.name]) out[b.name] = { x: (b.x - primary.x) * k, y: (b.y - primary.y) * k, w: mm[b.name][0], h: mm[b.name][1] }; });
   return out;
 }
 /* The rectangles the stage draws: pixels, or real-world millimetres. */
@@ -258,9 +265,14 @@ function layoutStage() {
     const pos = node.querySelector('[data-pos]'); if (pos) pos.textContent = `X: ${Math.round(c.x)}, Y: ${Math.round(c.y)}`;
   });
   const layer = $('cross');
-  if (layer) layer.innerHTML = ui.drag && ui.drag.moved ? '' : crossings(rects).map(s => s.vert
-    ? `<i style="left:${s.x * geo.k + geo.ox - 2}px;top:${s.y * geo.k + geo.oy + 6}px;width:4px;height:${Math.max(0, s.len * geo.k - 12)}px"></i>`
-    : `<i style="left:${s.x * geo.k + geo.ox + 6}px;top:${s.y * geo.k + geo.oy - 2}px;height:4px;width:${Math.max(0, s.len * geo.k - 12)}px"></i>`).join('');
+  // Inset the line a little from the corners, but never so much that a short shared edge disappears.
+  if (layer) layer.innerHTML = ui.drag && ui.drag.moved ? '' : crossings(rects).map(s => {
+    const len = s.len * geo.k, inset = Math.min(6, len / 4), size = Math.max(3, len - 2 * inset);
+    const start = (s.vert ? s.y : s.x) * geo.k + (s.vert ? geo.oy : geo.ox) + (len - size) / 2;
+    return s.vert
+      ? `<i style="left:${s.x * geo.k + geo.ox - 2}px;top:${start}px;width:4px;height:${size}px"></i>`
+      : `<i style="left:${start}px;top:${s.y * geo.k + geo.oy - 2}px;height:4px;width:${size}px"></i>`;
+  }).join('');
 }
 
 function pageArrange() {
@@ -393,13 +405,17 @@ function dropPhysical(d, list) {
   });
   if (!best) return false;
   const o = best.o, oc = list.find(x => x.name === o.name), c = d.c;
-  if (best.side === 'right' || best.side === 'left') {
-    const f = (d.r.y + d.r.h / 2 - o.y) / o.h;
-    c.x = best.side === 'right' ? oc.x + oc.w : oc.x - c.w; c.y = Math.round(oc.y + f * oc.h - c.h / 2);
-  } else {
-    const f = (d.r.x + d.r.w / 2 - o.x) / o.w;
-    c.y = best.side === 'below' ? oc.y + oc.h : oc.y - c.h; c.x = Math.round(oc.x + f * oc.w - c.w / 2);
-  }
+  const horiz = best.side === 'right' || best.side === 'left';
+  if (horiz) c.x = best.side === 'right' ? oc.x + oc.w : oc.x - c.w;
+  else c.y = best.side === 'below' ? oc.y + oc.h : oc.y - c.h;
+  // Along the shared edge: find the pixel offset whose real-size position is where it was dropped.
+  const a0 = horiz ? oc.y : oc.x, al = horiz ? oc.h : oc.w, A0 = horiz ? o.y : o.x, Al = horiz ? o.h : o.w;
+  const bl = horiz ? c.h : c.w, Bl = horiz ? d.r.h : d.r.w, want = horiz ? d.r.y : d.r.x;
+  let lo = a0 - bl + 1, hi = a0 + al - 1;
+  while (lo < hi) { const mid = Math.floor((lo + hi) / 2); if (axisPlace(a0, al, A0, Al, mid, bl, Bl) < want) lo = mid + 1; else hi = mid; }
+  const pick = [lo - 1, lo].filter(p => p >= a0 - bl + 1)
+    .reduce((p, q) => Math.abs(axisPlace(a0, al, A0, Al, q, bl, Bl) - want) < Math.abs(axisPlace(a0, al, A0, Al, p, bl, Bl) - want) ? q : p);
+  if (horiz) c.y = pick; else c.x = pick;
   return settle(c, list.filter(x => x !== c), false);
 }
 function stagePointerUp() {

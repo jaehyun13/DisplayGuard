@@ -104,62 +104,65 @@ def mm_from_inches(inches: float, w: int, h: int) -> Tuple[float, float]:
     return w * k, h * k
 
 
-def _touch_side(a: Dict, b: Dict) -> Optional[str]:
-    """Where b sits against a in the Windows (pixel) layout, if they share an edge."""
-    v = min(a["y"] + a["h"], b["y"] + b["h"]) - max(a["y"], b["y"])
-    hz = min(a["x"] + a["w"], b["x"] + b["w"]) - max(a["x"], b["x"])
-    if v > 0:
-        if b["x"] == a["x"] + a["w"]:
-            return "right"
-        if b["x"] + b["w"] == a["x"]:
-            return "left"
-    if hz > 0:
-        if b["y"] == a["y"] + a["h"]:
-            return "below"
-        if b["y"] + b["h"] == a["y"]:
-            return "above"
-    return None
+def _axis_place(a0: float, al: float, A0: float, Al: float,
+                b0: float, bl: float, Bl: float) -> float:
+    """Physical start of b along one axis, given a's pixel span [a0, a0+al] and
+    physical span [A0, A0+Al], and b's pixel span [b0, b0+bl] and physical length Bl.
+
+    - b beside a on this axis: keep the pixel gap (0 when they touch), scaled by a.
+    - spans overlap: take the middle of the shared pixel segment, and put the point
+      at the same fraction of each monitor on top of each other. That point lies
+      inside both monitors, so monitors that share an edge in pixels always share
+      an edge in the real-size layout too.
+    """
+    if b0 >= a0 + al:
+        return A0 + Al + (b0 - (a0 + al)) * Al / al
+    if b0 + bl <= a0:
+        return A0 - Bl - (a0 - (b0 + bl)) * Al / al
+    m = (max(a0, b0) + min(a0 + al, b0 + bl)) / 2.0
+    return A0 + (m - a0) / al * Al - (m - b0) / bl * Bl
+
+
+def _pixel_link(a: Dict, b: Dict) -> Tuple[int, int]:
+    """(gap, shared edge length) between two pixel rectangles. gap 0 = touching."""
+    gx = max(0, max(a["x"], b["x"]) - min(a["x"] + a["w"], b["x"] + b["w"]))
+    gy = max(0, max(a["y"], b["y"]) - min(a["y"] + a["h"], b["y"] + b["h"]))
+    ox = min(a["x"] + a["w"], b["x"] + b["w"]) - max(a["x"], b["x"])
+    oy = min(a["y"] + a["h"], b["y"] + b["h"]) - max(a["y"], b["y"])
+    return gx + gy, max(0, ox, oy)
 
 
 def physical_layout(configs: List[Dict],
                     mm: Dict[str, Tuple[float, float]]) -> Dict[str, Tuple[float, float, float, float]]:
     """Real-world rectangles (x, y, w, h in mm) derived from the pixel layout.
 
-    Monitors keep their neighbours; along a shared edge, the centre of the
-    neighbour sits at the same *fraction* of the edge as it does in pixels. So the
-    pixel layout fully determines the physical one (the UI mirrors this exactly —
-    see physLayout() in ui/app.js — and inverts it when you drag in real-size view).
+    Starting from the main display, the closest unplaced monitor (touching first,
+    longest shared edge first, then by name) is placed next to the placed monitor
+    it is closest to, axis by axis with _axis_place(). The UI mirrors this exactly
+    (physLayout() in ui/app.js) and inverts it when you drag in real-size view.
     """
     if not configs:
         return {}
+    by_name = {c["name"]: c for c in configs}
     primary = next((c for c in configs if c["primary"]), configs[0])
-    out = {primary["name"]: (0.0, 0.0, mm[primary["name"]][0], mm[primary["name"]][1])}
-    queue = [primary]
-    while queue:
-        a = queue.pop(0)
-        ax, ay, aw, ah = out[a["name"]]
+    out = {primary["name"]: (0.0, 0.0, float(mm[primary["name"]][0]),
+                             float(mm[primary["name"]][1]))}
+    while len(out) < len(configs):
+        best = None
         for b in configs:
             if b["name"] in out:
                 continue
-            side = _touch_side(a, b)
-            if not side:
-                continue
-            bw, bh = mm[b["name"]]
-            if side in ("right", "left"):
-                x = ax + aw if side == "right" else ax - bw
-                frac = (b["y"] + b["h"] / 2 - a["y"]) / a["h"]
-                y = ay + frac * ah - bh / 2
-            else:
-                y = ay + ah if side == "below" else ay - bh
-                frac = (b["x"] + b["w"] / 2 - a["x"]) / a["w"]
-                x = ax + frac * aw - bw / 2
-            out[b["name"]] = (x, y, bw, bh)
-            queue.append(b)
-    k = mm[primary["name"]][0] / primary["w"]
-    for b in configs:          # not touching anything: keep the pixel offset, scaled
-        if b["name"] not in out:
-            out[b["name"]] = ((b["x"] - primary["x"]) * k, (b["y"] - primary["y"]) * k,
-                              mm[b["name"]][0], mm[b["name"]][1])
+            for an in out:
+                gap, shared = _pixel_link(by_name[an], b)
+                key = (gap, -shared, b["name"], an)
+                if best is None or key < best:
+                    best = key
+        _, _, bn, an = best
+        a, b = by_name[an], by_name[bn]
+        ax, ay, aw, ah = out[an]
+        bw, bh = float(mm[bn][0]), float(mm[bn][1])
+        out[bn] = (_axis_place(a["x"], a["w"], ax, aw, b["x"], b["w"], bw),
+                   _axis_place(a["y"], a["h"], ay, ah, b["y"], b["h"], bh), bw, bh)
     return out
 
 
